@@ -58,3 +58,24 @@ dkms.conf
 *.pdf
 .mxproject
 *.uvoptx
+
+# dot files
+/.vscode/launch.json
+/.settings
+/.eide/log
+/.eide.usr.ctx.json
+
+# project out
+build/
+/bin
+/obj
+/out
+.cmsis/
+.eide/
+.vscode/
+
+# eide template
+*.ept
+*.eide-template
+*.code-workspace
+*.clang-format
