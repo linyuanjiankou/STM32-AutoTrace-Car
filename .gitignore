@@ -58,6 +58,7 @@ dkms.conf
 *.pdf
 .mxproject
 *.uvoptx
+*.txt
 
 # dot files
 /.vscode/launch.json
