@@ -59,6 +59,15 @@ dkms.conf
 .mxproject
 *.uvoptx
 *.txt
+*.uvguix.*
+*.uvoptx
+*.axf
+*.htm
+*.lnp
+*.sct
+*.dep
+*.crf
+
 
 # dot files
 /.vscode/launch.json
@@ -68,6 +77,9 @@ dkms.conf
 
 # project out
 build/
+EIDE/
+DebugConfig/
+RTE/
 /bin
 /obj
 /out
