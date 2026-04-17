@@ -25,7 +25,9 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "motor_test.c"
+#include "sensor.h"
+#include "linefollow.h"
+#include "mode.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -96,7 +98,9 @@ int main(void)
   MX_TIM3_Init();
   /* USER CODE BEGIN 2 */
   Motor_Init();
-  Motor_Basic_Test();
+  SENSOR_Init();
+  LineFollow_Init();
+  Mode_Init();
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -106,6 +110,7 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+    Mode_Update();
   }
   /* USER CODE END 3 */
 }
