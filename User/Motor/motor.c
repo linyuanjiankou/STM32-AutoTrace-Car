@@ -19,6 +19,7 @@
 
 /* Includes ------------------------------------------------------------------*/
 #include "motor.h"
+#include "sys.h"
 
 /* USER CODE BEGIN 0 */
 
@@ -29,9 +30,9 @@ static Motor_t Motor_A =
     .id = MOTOR_ID_A,
     .direction = MOTOR_STOP,
     .speed = 0,
+    .speed_rpm = 0,
     .encoder_count = 0,
     .last_encoder_count = 0,
-    .total_encoder_count = 0
 };
 
 static Motor_t Motor_B =
@@ -39,10 +40,58 @@ static Motor_t Motor_B =
     .id = MOTOR_ID_B,
     .direction = MOTOR_STOP,
     .speed = 0,
+    .speed_rpm = 0,
     .encoder_count = 0,
     .last_encoder_count = 0,
-    .total_encoder_count = 0
 };
+
+/* USER CODE END 0 */
+
+/* Private functions ---------------------------------------------------------*/
+/**
+  * @brief  Set motor direction using GPIO pins
+  * @param  motor_id: Motor ID (MOTOR_ID_A or MOTOR_ID_B)
+  * @param  direction: Direction to set (MOTOR_FWD, MOTOR_BWD, MOTOR_STOP)
+  */
+static void Motor_SetDirectionGPIO(uint8_t motor_id, MotorDirection_t direction)
+{
+    if (motor_id == MOTOR_ID_A)
+    {
+        switch (direction)
+        {
+            case MOTOR_FWD:
+                HAL_GPIO_WritePin(MOTOR_A_DIR1_PORT, MOTOR_A_DIR1_PIN, GPIO_PIN_SET);
+                HAL_GPIO_WritePin(MOTOR_A_DIR2_PORT, MOTOR_A_DIR2_PIN, GPIO_PIN_RESET);
+                break;
+            case MOTOR_BWD:
+                HAL_GPIO_WritePin(MOTOR_A_DIR1_PORT, MOTOR_A_DIR1_PIN, GPIO_PIN_RESET);
+                HAL_GPIO_WritePin(MOTOR_A_DIR2_PORT, MOTOR_A_DIR2_PIN, GPIO_PIN_SET);
+                break;
+            default: /* MOTOR_STOP */
+                HAL_GPIO_WritePin(MOTOR_A_DIR1_PORT, MOTOR_A_DIR1_PIN, GPIO_PIN_RESET);
+                HAL_GPIO_WritePin(MOTOR_A_DIR2_PORT, MOTOR_A_DIR2_PIN, GPIO_PIN_RESET);
+                break;
+        }
+    }
+    else if (motor_id == MOTOR_ID_B)
+    {
+        switch (direction)
+        {
+            case MOTOR_BWD:
+                HAL_GPIO_WritePin(MOTOR_B_DIR1_PORT, MOTOR_B_DIR1_PIN, GPIO_PIN_SET);
+                HAL_GPIO_WritePin(MOTOR_B_DIR2_PORT, MOTOR_B_DIR2_PIN, GPIO_PIN_RESET);
+                break;
+            case MOTOR_FWD:
+                HAL_GPIO_WritePin(MOTOR_B_DIR1_PORT, MOTOR_B_DIR1_PIN, GPIO_PIN_RESET);
+                HAL_GPIO_WritePin(MOTOR_B_DIR2_PORT, MOTOR_B_DIR2_PIN, GPIO_PIN_SET);
+                break;
+            default: /* MOTOR_STOP */
+                HAL_GPIO_WritePin(MOTOR_B_DIR1_PORT, MOTOR_B_DIR1_PIN, GPIO_PIN_RESET);
+                HAL_GPIO_WritePin(MOTOR_B_DIR2_PORT, MOTOR_B_DIR2_PIN, GPIO_PIN_RESET);
+                break;
+        }
+    }
+}
 
 /* USER CODE END 0 */
 
@@ -61,6 +110,7 @@ void Motor_Init(void)
 
     /* Initialize Motor B */
     Motor_B_Init();
+
 }
 
 /**
@@ -71,7 +121,7 @@ void Motor_Init(void)
 void Motor_A_Init(void)
 {
     /* Set initial direction to stop */
-    MOTOR_A_STOP_DIRECTION();
+    Motor_SetDirectionGPIO(MOTOR_ID_A, MOTOR_STOP);
 
     /* Set initial speed to 0 */
     Motor_A.speed = 0;
@@ -81,36 +131,34 @@ void Motor_A_Init(void)
     LL_TIM_SetCounter(TIM4, 0);
     Motor_A.encoder_count = 0;
     Motor_A.last_encoder_count = 0;
-    Motor_A.total_encoder_count = 0;
 
-    /* Enable encoder interface with X4 quadrature decoding */
-    LL_TIM_SetEncoderMode(TIM4, LL_TIM_ENCODERMODE_X4_TI12);
-    LL_TIM_EnableCounter(TIM4);
+    /* Start PWM output for Motor A (TIM1_CH4) */
+    HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_4);
+
+
 }
 
 /**
   * @brief  Initialize Motor B (Right Motor)
   * @note   PB14, PB15 for direction control; PA8 for PWM (TIM1_CH1)
-  *         Encoder: PA0, PA1 (TIM2_CH1, TIM2_CH2) with X4 quadrature decoding
+  *         Encoder: PA6, PA7 (TIM3_CH1, TIM3_CH2) with X4 quadrature decoding
   */
 void Motor_B_Init(void)
 {
     /* Set initial direction to stop */
-    MOTOR_B_STOP_DIRECTION();
+    Motor_SetDirectionGPIO(MOTOR_ID_B, MOTOR_STOP);
 
     /* Set initial speed to 0 */
     Motor_B.speed = 0;
     LL_TIM_OC_SetCompareCH1(TIM1, 0);
 
     /* Reset encoder count using LL library */
-    LL_TIM_SetCounter(TIM2, 0);
+    LL_TIM_SetCounter(TIM3, 0);
     Motor_B.encoder_count = 0;
     Motor_B.last_encoder_count = 0;
-    Motor_B.total_encoder_count = 0;
 
-    /* Enable encoder interface with X4 quadrature decoding */
-    LL_TIM_SetEncoderMode(TIM2, LL_TIM_ENCODERMODE_X4_TI12);
-    LL_TIM_EnableCounter(TIM2);
+    /* Start PWM output for Motor B (TIM1_CH1) */
+    HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
 }
 
 /*----------------------------------------------------------------------------*/
@@ -154,41 +202,17 @@ void Motor_SetSpeed(uint8_t motor_id, uint16_t speed)
   */
 void Motor_SetDirection(uint8_t motor_id, MotorDirection_t direction)
 {
+    /* Set direction via GPIO */
+    Motor_SetDirectionGPIO(motor_id, direction);
+
+    /* Update direction in motor structure */
     if (motor_id == MOTOR_ID_A)
     {
-        switch (direction)
-        {
-            case MOTOR_FWD:
-                MOTOR_A_FORWARD();
-                Motor_A.direction = MOTOR_FWD;
-                break;
-            case MOTOR_BWD:
-                MOTOR_A_BACKWARD();
-                Motor_A.direction = MOTOR_BWD;
-                break;
-            default: /* MOTOR_STOP */
-                MOTOR_A_STOP_DIRECTION();
-                Motor_A.direction = MOTOR_STOP;
-                break;
-        }
+        Motor_A.direction = direction;
     }
     else if (motor_id == MOTOR_ID_B)
     {
-        switch (direction)
-        {
-            case MOTOR_FWD:
-                MOTOR_B_FORWARD();
-                Motor_B.direction = MOTOR_FWD;
-                break;
-            case MOTOR_BWD:
-                MOTOR_B_BACKWARD();
-                Motor_B.direction = MOTOR_BWD;
-                break;
-            default: /* MOTOR_STOP */
-                MOTOR_B_STOP_DIRECTION();
-                Motor_B.direction = MOTOR_STOP;
-                break;
-        }
+        Motor_B.direction = direction;
     }
 }
 
@@ -219,26 +243,6 @@ void Motor_Stop(uint8_t motor_id)
 /*----------------------------------------------------------------------------*/
 
 /**
-  * @brief  Get encoder count for specified motor
-  * @param  motor_id: Motor ID (MOTOR_ID_A or MOTOR_ID_B)
-  * @retval Encoder count
-  */
-uint32_t Motor_GetEncoderCount(uint8_t motor_id)
-{
-    if (motor_id == MOTOR_ID_A)
-    {
-        Motor_A.encoder_count = LL_TIM_GetCounter(TIM4);
-        return Motor_A.encoder_count;
-    }
-    else if (motor_id == MOTOR_ID_B)
-    {
-        Motor_B.encoder_count = LL_TIM_GetCounter(TIM2);
-        return Motor_B.encoder_count;
-    }
-    else return 0;
-}
-
-/**
   * @brief  Reset encoder count for specified motor
   * @param  motor_id: Motor ID (MOTOR_ID_A or MOTOR_ID_B)
   */
@@ -249,14 +253,12 @@ void Motor_ResetEncoderCount(uint8_t motor_id)
         LL_TIM_SetCounter(TIM4, 0);
         Motor_A.encoder_count = 0;
         Motor_A.last_encoder_count = 0;
-        Motor_A.total_encoder_count = 0;
     }
     else if (motor_id == MOTOR_ID_B)
     {
-        LL_TIM_SetCounter(TIM2, 0);
+        LL_TIM_SetCounter(TIM3, 0);
         Motor_B.encoder_count = 0;
         Motor_B.last_encoder_count = 0;
-        Motor_B.total_encoder_count = 0;
     }
 }
 
@@ -265,32 +267,39 @@ void Motor_ResetEncoderCount(uint8_t motor_id)
   * @param  motor_id: Motor ID (MOTOR_ID_A or MOTOR_ID_B)
   * @retval Total encoder count (positive for forward, negative for backward)
   */
-int32_t Motor_GetTotalEncoderCount(uint8_t motor_id)
+void Motor_UpdateEncoderCount(void)
 {
-    int32_t current_count;
+    int32_t current_count_a = 0;
+    int32_t current_count_b = 0;
 
+    current_count_a = LL_TIM_GetCounter(TIM4);
+    Motor_A.encoder_count = current_count_a;
+
+    current_count_b = LL_TIM_GetCounter(TIM3);
+    printf("Encoder Count B: %d\r\n", current_count_b);
+    Motor_B.encoder_count = current_count_b;
+
+}
+
+uint32_t Motor_GetEncoderCount(uint8_t motor_id)
+{
     if (motor_id == MOTOR_ID_A)
     {
-        current_count = LL_TIM_GetCounter(TIM4);
-        Motor_A.total_encoder_count = current_count;
-        return current_count;
+        return Motor_A.encoder_count;
     }
     else if (motor_id == MOTOR_ID_B)
     {
-        current_count = LL_TIM_GetCounter(TIM2);
-        Motor_B.total_encoder_count = current_count;
-        return current_count;
+        return Motor_B.encoder_count;
     }
     else return 0;
 }
-
 /**
   * @brief  Calculate motor speed in RPM
   * @note   Using integer math with fixed-point arithmetic (scale factor = 1000)
   * @param  motor_id: Motor ID (MOTOR_ID_A or MOTOR_ID_B)
   * @retval Speed in RPM (multiplied by 1000 for integer precision)
   */
-uint32_t Motor_GetSpeedRPM(uint8_t motor_id)
+void MotorA_UpdateSpeedRPM(void)
 {
     uint32_t speed_rpm = 0;
     int32_t delta_count = 0;
@@ -303,52 +312,72 @@ uint32_t Motor_GetSpeedRPM(uint8_t motor_id)
 
     if (dt_ms >= 100)  /* Update every 100ms */
     {
-        if (motor_id == MOTOR_ID_A)
-        {
-            current_count = LL_TIM_GetCounter(TIM4);
-            delta_count = (int32_t)(current_count - Motor_A.last_encoder_count);
-            Motor_A.last_encoder_count = current_count;
+        current_count = LL_TIM_GetCounter(TIM4);
+        delta_count = (int32_t)(current_count - Motor_A.last_encoder_count);
+        Motor_A.last_encoder_count = current_count;
 
-            /* Calculate RPM using integer math:
-             * speed_rpm = (delta_count * 60 * 1000) / (counts_per_rev * dt_seconds)
-             * dt_ms is in milliseconds, so dt_seconds = dt_ms / 1000
-             * Simplified: speed_rpm = (delta_count * 60 * 1000 * 1000) / (counts_per_rev * dt_ms)
-             * Using scale factor of 1000: speed_rpm_scaled = (delta_count * 60 * 1000 * 1000) / (counts_per_rev * dt_ms)
-             */
-            if (dt_ms > 0)
-            {
-                speed_rpm = (uint32_t)((uint64_t)delta_count * 60000000UL / ((uint64_t)ENCODER_COUNT_PER_REV * dt_ms));
-            }
-        }
-        else if (motor_id == MOTOR_ID_B)
+        /* Calculate RPM using integer math:
+            * speed_rpm = (delta_count * 60 * 1000) / (counts_per_rev * dt_seconds)
+            * dt_ms is in milliseconds, so dt_seconds = dt_ms / 1000
+            * Simplified: speed_rpm = (delta_count * 60 * 1000 * 1000) / (counts_per_rev * dt_ms)
+            * Using scale factor of 1000: speed_rpm_scaled = (delta_count * 60 * 1000 * 1000) / (counts_per_rev * dt_ms)
+            */
+        if (dt_ms > 0)
         {
-            current_count = LL_TIM_GetCounter(TIM2);
-            delta_count = (int32_t)(current_count - Motor_B.last_encoder_count);
-            Motor_B.last_encoder_count = current_count;
-
-            if (dt_ms > 0)
-            {
-                speed_rpm = (uint32_t)((uint64_t)delta_count * 60000000UL / ((uint64_t)ENCODER_COUNT_PER_REV * dt_ms));
-            }
+            speed_rpm = (uint32_t)((uint64_t)delta_count * 60000000UL / ((uint64_t)ENCODER_COUNT_PER_REV * dt_ms));
+            Motor_A.speed_rpm = speed_rpm;
         }
 
         last_update_time = current_time;
     }
-
-    return speed_rpm;
 }
 
-/**
-  * @brief  Motor update function (call in main loop or interrupt)
-  * @note   This function should be called periodically to update motor status
-  */
-void Motor_Update(void)
+void MotorB_UpdateSpeedRPM(void)
 {
-    Motor_GetEncoderCount(MOTOR_ID_A);
-    Motor_GetEncoderCount(MOTOR_ID_B);
+    uint32_t speed_rpm = 0;
+    int32_t delta_count = 0;
+    static uint32_t last_update_time = 0;
+    uint32_t current_time = HAL_GetTick();
+    uint32_t current_count = 0;
 
-    Motor_GetSpeedRPM(MOTOR_ID_A);
-    Motor_GetSpeedRPM(MOTOR_ID_B);
+    /* Calculate time difference (in milliseconds, scaled by 1000 for integer math) */
+    uint32_t dt_ms = current_time - last_update_time;
+
+    if (dt_ms >= 100)  /* Update every 100ms */
+    {
+        current_count = LL_TIM_GetCounter(TIM3);
+        delta_count = (int32_t)(current_count - Motor_B.last_encoder_count);
+        Motor_B.last_encoder_count = current_count;
+
+        /* Calculate RPM using integer math:
+            * speed_rpm = (delta_count * 60 * 1000) / (counts_per_rev * dt_seconds)
+            * dt_ms is in milliseconds, so dt_seconds = dt_ms / 1000
+            * Simplified: speed_rpm = (delta_count * 60 * 1000 * 1000) / (counts_per_rev * dt_ms)
+            * Using scale factor of 1000: speed_rpm_scaled = (delta_count * 60 * 1000 * 1000) / (counts_per_rev * dt_ms)
+            */
+        if (dt_ms > 0)
+        {
+            speed_rpm = (uint32_t)((uint64_t)delta_count * 60000000UL / ((uint64_t)ENCODER_COUNT_PER_REV * dt_ms));
+            Motor_B.speed_rpm = speed_rpm;
+        }
+
+        last_update_time = current_time;
+    }
+}
+
+void Motor_UpdateSpeedRPM(void){
+    MotorA_UpdateSpeedRPM();
+    MotorB_UpdateSpeedRPM();
+}
+
+uint32_t Motor_GetSpeedRPM(uint8_t motor_id){
+    if (motor_id == MOTOR_ID_A){
+        return Motor_A.speed_rpm;
+    }
+    else if (motor_id == MOTOR_ID_B){
+        return Motor_B.speed_rpm;
+    }
+    else return 0;
 }
 
 /* USER CODE END 1 */

@@ -25,7 +25,6 @@ extern "C" {
 #endif
 
 /* Includes ------------------------------------------------------------------*/
-#include "main.h"
 #include "tim.h"
 #include "stm32f1xx_ll_tim.h"
 #include "stm32f1xx_ll_bus.h"
@@ -47,9 +46,9 @@ typedef struct
     uint8_t id;                    /* Motor ID: 1 for Motor A, 2 for Motor B */
     MotorDirection_t direction;    /* Current direction */
     uint16_t speed;                /* Speed value (0-100%) - setpoint for PID */
+    uint32_t speed_rpm;            /* Speed value for RPM calculation */
     uint32_t encoder_count;        /* Encoder count */
     uint32_t last_encoder_count;   /* Last encoder count for speed calculation */
-    int32_t total_encoder_count;   /* Total encoder count (for position) */
 } Motor_t;
 
 /* USER CODE END ET */
@@ -81,10 +80,10 @@ typedef struct
 #define MOTOR_B_DIR2_PORT             GPIOB
 #define MOTOR_B_PWM_PIN               GPIO_PIN_8
 #define MOTOR_B_PWM_PORT              GPIOA
-#define MOTOR_B_ENCODER_TIM           htim2
-#define MOTOR_B_ENCODER_CH1_PIN       GPIO_PIN_0
+#define MOTOR_B_ENCODER_TIM           htim3
+#define MOTOR_B_ENCODER_CH1_PIN       GPIO_PIN_6
 #define MOTOR_B_ENCODER_CH1_PORT      GPIOA
-#define MOTOR_B_ENCODER_CH2_PIN       GPIO_PIN_1
+#define MOTOR_B_ENCODER_CH2_PIN       GPIO_PIN_7
 #define MOTOR_B_ENCODER_CH2_PORT      GPIOA
 
 /* Speed control - Macro definitions for speed levels */
@@ -95,7 +94,8 @@ typedef struct
 #define MOTOR_SPEED_MAX               100         /* Maximum speed: 100% duty cycle */
 
 /* PWM period for speed control (based on TIM1 clock) */
-#define MOTOR_PWM_PERIOD              1000        /* PWM period value */
+/* TIM1 配置：Prescaler=0, Period=65535，因此 PWM 周期为 65535 */
+#define MOTOR_PWM_PERIOD              65535       /* PWM period value */
 
 /* Encoder related definitions */
 /*
@@ -112,7 +112,6 @@ typedef struct
  * For RPM calculation, the formula automatically accounts for this ratio.
  */
 #define ENCODER_COUNT_PER_REV        1040
-
 
 /* Speed RPM calculation notes:
  *
@@ -157,43 +156,6 @@ typedef struct
 
 /* USER CODE END EC */
 
-/* Exported macro ------------------------------------------------------------*/
-/* USER CODE BEGIN EM */
-
-/* Direction control macros - Motor A (using HAL GPIO) */
-#define MOTOR_A_FORWARD()             do { \
-    HAL_GPIO_WritePin(MOTOR_A_DIR1_PORT, MOTOR_A_DIR1_PIN, GPIO_PIN_SET); \
-    HAL_GPIO_WritePin(MOTOR_A_DIR2_PORT, MOTOR_A_DIR2_PIN, GPIO_PIN_RESET); \
-} while(0)
-
-#define MOTOR_A_BACKWARD()            do { \
-    HAL_GPIO_WritePin(MOTOR_A_DIR1_PORT, MOTOR_A_DIR1_PIN, GPIO_PIN_RESET); \
-    HAL_GPIO_WritePin(MOTOR_A_DIR2_PORT, MOTOR_A_DIR2_PIN, GPIO_PIN_SET); \
-} while(0)
-
-#define MOTOR_A_STOP_DIRECTION()      do { \
-    HAL_GPIO_WritePin(MOTOR_A_DIR1_PORT, MOTOR_A_DIR1_PIN, GPIO_PIN_RESET); \
-    HAL_GPIO_WritePin(MOTOR_A_DIR2_PORT, MOTOR_A_DIR2_PIN, GPIO_PIN_RESET); \
-} while(0)
-
-/* Direction control macros - Motor B (using HAL GPIO) */
-#define MOTOR_B_FORWARD()             do { \
-    HAL_GPIO_WritePin(MOTOR_B_DIR1_PORT, MOTOR_B_DIR1_PIN, GPIO_PIN_SET); \
-    HAL_GPIO_WritePin(MOTOR_B_DIR2_PORT, MOTOR_B_DIR2_PIN, GPIO_PIN_RESET); \
-} while(0)
-
-#define MOTOR_B_BACKWARD()            do { \
-    HAL_GPIO_WritePin(MOTOR_B_DIR1_PORT, MOTOR_B_DIR1_PIN, GPIO_PIN_RESET); \
-    HAL_GPIO_WritePin(MOTOR_B_DIR2_PORT, MOTOR_B_DIR2_PIN, GPIO_PIN_SET); \
-} while(0)
-
-#define MOTOR_B_STOP_DIRECTION()      do { \
-    HAL_GPIO_WritePin(MOTOR_B_DIR1_PORT, MOTOR_B_DIR1_PIN, GPIO_PIN_RESET); \
-    HAL_GPIO_WritePin(MOTOR_B_DIR2_PORT, MOTOR_B_DIR2_PIN, GPIO_PIN_RESET); \
-} while(0)
-
-/* USER CODE END EM */
-
 /* Exported functions prototypes ---------------------------------------------*/
 /* USER CODE BEGIN EFP */
 
@@ -210,14 +172,13 @@ void Motor_Stop(uint8_t motor_id);
 
 /* Encoder read functions (using LL library and direct register access) */
 /* These functions return values directly - no need to store in struct */
-uint32_t Motor_GetEncoderCount(uint8_t motor_id);
 void Motor_ResetEncoderCount(uint8_t motor_id);
-int32_t Motor_GetTotalEncoderCount(uint8_t motor_id);
+void Motor_UpdateEncoderCount(void);
+uint32_t Motor_GetEncoderCount(uint8_t motor_id);
+void MotorA_UpdateSpeedRPM(void);
+void MotorB_UpdateSpeedRPM(void);
+void Motor_UpdateSpeedRPM(void);
 uint32_t Motor_GetSpeedRPM(uint8_t motor_id);
-
-/* Motor update function (call in main loop or interrupt) */
-/* This function updates encoder counts, but speed_rpm is returned directly */
-void Motor_Update(void);
 
 /* USER CODE END EFP */
 
