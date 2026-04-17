@@ -32,13 +32,14 @@ extern "C" {
 /* USER CODE BEGIN ET */
 
 /* Sensor status structure - stores all 5 channel readings */
+/* Sensor value: 1 = black line, 0 = white surface */
 typedef struct
 {
-    uint8_t LEFT2;    /* PC14 - 1: white surface, 0: black line */
-    uint8_t LEFT1;    /* PC13 - 1: white surface, 0: black line */
-    uint8_t CENTER;   /* PB1 - 1: white surface, 0: black line */
-    uint8_t RIGHT1;   /* PA3 - 1: white surface, 0: black line */
-    uint8_t RIGHT2;   /* PA2 - 1: white surface, 0: black line */
+    uint8_t LEFT2;    /* PC14 - 1: black line, 0: white surface */
+    uint8_t LEFT1;    /* PC13 - 1: black line, 0: white surface */
+    uint8_t CENTER;   /* PB1 - 1: black line, 0: white surface */
+    uint8_t RIGHT1;   /* PA3 - 1: black line, 0: white surface */
+    uint8_t RIGHT2;   /* PA2 - 1: black line, 0: white surface */
 } SENSOR_Status_t;
 
 /* USER CODE END ET */
@@ -68,8 +69,8 @@ typedef struct
 #define SENSOR_RIGHT2_PORT        GPIOA
 
 /* Sensor read value definitions */
-#define SENSOR_LINE_DETECTED      0x00    /* Black line detected (LOW) */
-#define SENSOR_NO_LINE            0x01    /* White surface detected (HIGH) */
+#define SENSOR_LINE_DETECTED      0x01    /* Black line detected (HIGH) */
+#define SENSOR_NO_LINE            0x00    /* White surface detected (LOW) */
 
 /* USER CODE END EC */
 
