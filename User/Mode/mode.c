@@ -29,8 +29,8 @@
 Mode_t g_current_mode = MODE_TRIANGLE;
 
 /* Button pin definition - modify according to your hardware */
-#define MODE_BUTTON_PIN       GPIO_PIN_13
-#define MODE_BUTTON_PORT      GPIOC
+#define MODE_BUTTON_PIN       GPIO_PIN_5
+#define MODE_BUTTON_PORT      GPIOA
 
 /* Last update tick for mode checking */
 static uint32_t s_last_mode_check_tick = 0;
