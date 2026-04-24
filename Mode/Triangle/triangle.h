@@ -33,18 +33,21 @@ extern "C" {
 /* Exported types ------------------------------------------------------------*/
 /* State machine enumeration */
 typedef enum {
-    STATE_START,   /* Initialization state */
-    STATE_TRACK,   /* Normal line following (black line = 0) */
-    STATE_TURN,    /* Turning when >= 3 sensors detect black line */
-    STATE_LOST,    /* Line lost (all sensors = 1, white surface) */
-    STATE_STOP     /* Triangle complete, stop */
-} CarState_t;
+    TRIANGLE_STATE_START,   /* Initialization state */
+    TRIANGLE_STATE_TRACK,   /* Normal line following (black line = 0) */
+    TRIANGLE_STATE_WAIT,    /* Waiting for turning*/
+    TRIANGLE_STATE_TURN,    /* Turning when >= 3 sensors detect black line */
+    TRIANGLE_STATE_LOST,    /* Line lost (all sensors = 1, white surface) */
+    TRIANGLE_STATE_STOP     /* Triangle complete, stop */
+} TriangleState_t;
 
 /* Exported constants --------------------------------------------------------*/
 /* Turn direction definitions */
 #define TURN_LEFT_DIR   0   /* Left wheel BWD, Right wheel FWD */
 #define TURN_RIGHT_DIR  1   /* Left wheel FWD, Right wheel BWD */
 
+/* StraightLine speed*/
+#define STRAIGHT_SPEED  20
 /* Turn speed */
 #define TURN_SPEED      15
 
@@ -56,7 +59,7 @@ typedef enum {
 
 /* Exported variables --------------------------------------------------------*/
 /* Current triangle state */
-extern CarState_t g_triangle_current_state;
+extern TriangleState_t g_triangle_current_state;
 
 /* Number of turns completed (0-3) */
 extern int g_triangle_turn_count;

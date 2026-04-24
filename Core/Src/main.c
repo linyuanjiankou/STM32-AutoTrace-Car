@@ -27,6 +27,8 @@
 /* USER CODE BEGIN Includes */
 #include "sensor.h"
 #include "triangle.h"
+#include "circle.h"
+#include "curve.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -98,7 +100,10 @@ int main(void)
   /* USER CODE BEGIN 2 */
   Motor_Init();
   SENSOR_Init();
-  Triangle_Init();
+  Circle_Init();
+	// Curve_Init();
+  //Triangle_Init();
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -108,7 +113,9 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-    Triangle_Update();
+    Circle_Update();
+    //Triangle_Update();
+
   }
   /* USER CODE END 3 */
 }
