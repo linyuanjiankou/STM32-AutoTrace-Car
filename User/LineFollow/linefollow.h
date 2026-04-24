@@ -83,9 +83,6 @@ void LineFollow_Init(void);
 /* Main control function - call in main loop */
 void LineFollow_Update(void);
 
-/* Set base speed (0-100) */
-void LineFollow_SetBaseSpeed(uint16_t speed);
-
 /* Set PID parameters */
 void LineFollow_SetPID(float kp, float ki, float kd);
 void StraightLine_SetPID(void);
@@ -97,9 +94,6 @@ void LineFollow_SetOutputLimit(float limit);
 
 /* Set integral limit (for anti-windup) */
 void LineFollow_SetIntegralLimit(float limit);
-
-/* Set control period in ms */
-void LineFollow_SetControlPeriod(uint16_t period_ms);
 
 /* Get current weighted sum (for debugging) */
 int32_t LineFollow_GetWeightedSum(void);

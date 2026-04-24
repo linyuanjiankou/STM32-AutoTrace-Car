@@ -89,8 +89,6 @@ static int32_t LineFollow_CalcWeightedSum(SENSOR_Status_t *sensors)
   */
 static float PID_Update(float setpoint, float feedback, float dt)
 {
-    static float error_prev = 0.0f;
-
     float error = setpoint - feedback;
 
     float kp_term = g_linefollow_pid_kp * error;
@@ -105,9 +103,8 @@ static float PID_Update(float setpoint, float feedback, float dt)
 
     float derivative = 0.0f;
     if (dt > 0.0f) {
-        derivative = (error - error_prev) / dt;
+        derivative = (error - s_pid.error_prev) / dt;
     }
-    error_prev = error;
     float kd_term = g_linefollow_pid_kd * derivative;
 
     float output = kp_term + ki_term + kd_term;
@@ -117,6 +114,12 @@ static float PID_Update(float setpoint, float feedback, float dt)
     } else if (output < -g_linefollow_pid_output_limit) {
         output = -g_linefollow_pid_output_limit;
     }
+
+    /* Sync back to s_pid structure */
+    s_pid.error = error;
+    s_pid.error_prev = error;
+    s_pid.feedback = feedback;
+    s_pid.output = output;
 
     return output;
 }
@@ -142,6 +145,10 @@ void LineFollow_Update(void)
     uint8_t left_edge_detected;
     uint8_t right_edge_detected;
 
+    /* Calculate real time interval (no early return — dt may vary) */
+    uint32_t now = HAL_GetTick();
+    float dt = (float)(now - s_last_update_tick) / 1000.0f;
+
     /* Read sensor data (0=black line, 1=white surface) */
     SENSOR_ReadRaw(&sensors);
 
@@ -157,27 +164,8 @@ void LineFollow_Update(void)
                      sensors.CENTER == 0 || sensors.RIGHT1 == 0 ||
                      sensors.RIGHT2 == 0);
 
-    /* 极端情况保护：如果内侧三个传感器都未检测到黑线，但外侧有检测到 */
-    /* 说明线已严重偏移，需要大转向 */
-    if (line_detected && (sensors.LEFT1 == 1 && sensors.CENTER == 1 && sensors.RIGHT1 == 1))
-    {
-        if (left_edge_detected) {
-            /* 左侧外侧检测到黑线，大左转 */
-            s_left_speed  = g_linefollow_base_speed - 30;
-            s_right_speed = g_linefollow_base_speed + 30;
-        } else if (right_edge_detected) {
-            /* 右侧外侧检测到黑线，大右转 */
-            s_left_speed  = g_linefollow_base_speed + 30;
-            s_right_speed = g_linefollow_base_speed - 30;
-        }
-    }
-    else if (!line_detected) {
-        /* 完全丢线：原地旋转 */
-        s_left_speed  = g_linefollow_base_speed;
-        s_right_speed = g_linefollow_base_speed;
-    } else if (weighted_sum != 0) {
+    if (weighted_sum != 0) {
         /* 正常循迹：使用PID correction */
-        float dt = (float)g_linefollow_control_period / 1000.0f;
         float speed_diff = PID_Update(0.0f, (float)weighted_sum, dt);
         int32_t speed_abs = my_abs((int32_t)speed_diff);
 
@@ -203,32 +191,7 @@ void LineFollow_Update(void)
         s_left_speed = g_linefollow_base_speed;
         s_right_speed = g_linefollow_base_speed;
     }
-
-    /* Clamp speeds again after extreme case handling */
-    if (s_left_speed > 100) s_left_speed = 100;
-    if (s_right_speed > 100) s_right_speed = 100;
-    if (s_left_speed < 0) s_left_speed = 0;
-    if (s_right_speed < 0) s_right_speed = 0;
-
-    /* Run motors */
-    if (!line_detected) {
-        /* No line detected: spin in place */
-        Motor_Run(MOTOR_ID_A, MOTOR_FWD, s_left_speed);
-        Motor_Run(MOTOR_ID_B, MOTOR_BWD, s_right_speed);
-    } else if (weighted_sum != 0) {
-        /* Line detected with deviation */
-        Motor_Run(MOTOR_ID_A, MOTOR_FWD, s_left_speed);
-        Motor_Run(MOTOR_ID_B, MOTOR_FWD, s_right_speed);
-    } else {
-        /* Line detected but centered */
-        Motor_Run(MOTOR_ID_A, MOTOR_FWD, s_left_speed);
-        Motor_Run(MOTOR_ID_B, MOTOR_FWD, s_right_speed);
-    }
-}
-
-void LineFollow_SetBaseSpeed(uint16_t speed)
-{
-    g_linefollow_base_speed = (speed > 100) ? 100 : speed;
+    s_last_update_tick = now;
 }
 
 void LineFollow_SetPID(float kp, float ki, float kd)
@@ -246,11 +209,6 @@ void LineFollow_SetOutputLimit(float limit)
 void LineFollow_SetIntegralLimit(float limit)
 {
     g_linefollow_pid_integral_limit = limit;
-}
-
-void LineFollow_SetControlPeriod(uint16_t period_ms)
-{
-    g_linefollow_control_period = (period_ms < 10) ? 10 : period_ms;
 }
 
 int32_t LineFollow_GetWeightedSum(void)
