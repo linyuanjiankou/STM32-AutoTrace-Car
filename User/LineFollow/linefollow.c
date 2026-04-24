@@ -4,12 +4,12 @@
   * @file           : linefollow.c
   * @brief          : Line follow control with weighted sum logic
   * @note          :
-  *         Sensor value: 1 = black line, 0 = white surface
-  *         Weighted sum: LEFT2*(-2) + LEFT1*(-1) + CENTER*0 + RIGHT1*1 + RIGHT2*2
-  *         1. If NO line detected (all sensors = 0): spin in place
-  *         2. If line detected AND weighted_sum != 0: use PID to correct direction
-  *         3. If line detected AND weighted_sum == 0: go straight (both wheels at base speed)
-  *            This covers: centered on line, full black, symmetric sensor patterns
+  *         Sensor value: 0 = black line, 1 = white surface
+  *         PID calculation uses only: LEFT1, CENTER, RIGHT1
+  *         Weighted sum: LEFT1*(-1) + CENTER*0 + RIGHT1*1
+  *         LEFT2 and RIGHT2 are only used for:
+  *           - State switching
+  *           - Extreme case protection (when inner sensors lose the line)
   ******************************************************************************
   * @attention
   *
@@ -22,6 +22,7 @@
   *
   ******************************************************************************
   */
+/* USER CODE END Header */
 
 /* Includes ------------------------------------------------------------------*/
 #include "linefollow.h"
@@ -40,16 +41,11 @@ static uint32_t s_last_update_tick = 0;
 uint16_t g_linefollow_base_speed = 10;
 
 /* PID parameters for deviation control */
-/* Kp: Proportional gain - higher = more aggressive correction */
-float g_linefollow_pid_kp = 3.0f;
-
-/* Ki: Integral gain - eliminates steady-state error */
+float g_linefollow_pid_kp = 3.5f;
 float g_linefollow_pid_ki = 0.0f;
+float g_linefollow_pid_kd = 0.1f;
 
-/* Kd: Derivative gain - dampens oscillations */
-float g_linefollow_pid_kd = 0.0f;
-
-/* PID output limit (max speed difference) */
+/* PID output limit */
 float g_linefollow_pid_output_limit = 40.0f;
 
 /* Integral windup limit */
@@ -61,54 +57,52 @@ uint16_t g_linefollow_control_period = 20;
 /* Private functions ---------------------------------------------------------*/
 
 /**
-  * @brief  Calculate weighted sensor deviation
-  * @note   Sensor readings: 1=black line, 0=white surface
-  *         Weighted sum: LEFT2*(-2) + LEFT1*(-1) + CENTER*0 + RIGHT1*1 + RIGHT2*2
-  * @retval int32_t: Weighted sum value (-5 to +5)
+  * @brief  Calculate weighted sensor deviation for PID
+  * @note   Uses only LEFT1, CENTER, RIGHT1 sensors
+  *         Weighted sum: LEFT1*(-1) + CENTER*0 + RIGHT1*1
+  *         Sensor readings: 0=black line, 1=white surface
+  *         Conversion: 0(黑线) -> -1, 1(白线) -> 1
+  *         LEFT2 and RIGHT2 are NOT used for PID calculation
+  *         They are only used for line detection/state switching
+  * @retval int32_t: Weighted sum value (-2 to +2)
   */
 static int32_t LineFollow_CalcWeightedSum(SENSOR_Status_t *sensors)
 {
     int32_t weighted_sum = 0;
 
-    /* Weighted sum calculation */
-    weighted_sum += (int32_t)sensors->LEFT2  * (-2);
-    weighted_sum += (int32_t)sensors->LEFT1  * (-1);
-    weighted_sum += (int32_t)sensors->CENTER * 0;
-    weighted_sum += (int32_t)sensors->RIGHT1 * 1;
-    weighted_sum += (int32_t)sensors->RIGHT2 * 2;
+    /* 只使用 LEFT1, CENTER, RIGHT1 三个传感器进行PID计算 */
+    /* 将 0/1 转换为 -1/1: 0(黑线) -> -1, 1(白线) -> 1 */
+    int32_t s_left1  = (sensors->LEFT1  == 0) ? -1 : 1;
+    int32_t s_center = (sensors->CENTER == 0) ? -1 : 1;
+    int32_t s_right1 = (sensors->RIGHT1 == 0) ? -1 : 1;
+
+    weighted_sum += s_left1  * (-1);
+    weighted_sum += s_center * 0;
+    weighted_sum += s_right1 * 1;
 
     return weighted_sum;
 }
 
 /**
   * @brief  PID update function
-  * @note   Computes PID output based on error (deviation from center)
-  * @param  setpoint: Target value (0 = centered on line)
-  * @param  feedback: Current measured value (current weighted sum)
-  * @param  dt: Time delta in seconds
-  * @retval float: PID output (speed difference between left and right wheels)
+  * @retval float: PID output
   */
 static float PID_Update(float setpoint, float feedback, float dt)
 {
     static float error_prev = 0.0f;
-    static float error_sum = 0.0f;
 
-    /* Calculate error */
     float error = setpoint - feedback;
 
-    /* Proportional term */
     float kp_term = g_linefollow_pid_kp * error;
 
-    /* Integral term */
-    error_sum += error * dt;
-    if (error_sum > g_linefollow_pid_integral_limit) {
-        error_sum = g_linefollow_pid_integral_limit;
-    } else if (error_sum < -g_linefollow_pid_integral_limit) {
-        error_sum = -g_linefollow_pid_integral_limit;
+    s_pid.error_sum += error * dt;
+    if (s_pid.error_sum > g_linefollow_pid_integral_limit) {
+        s_pid.error_sum = g_linefollow_pid_integral_limit;
+    } else if (s_pid.error_sum < -g_linefollow_pid_integral_limit) {
+        s_pid.error_sum = -g_linefollow_pid_integral_limit;
     }
-    float ki_term = g_linefollow_pid_ki * error_sum;
+    float ki_term = g_linefollow_pid_ki * s_pid.error_sum;
 
-    /* Derivative term */
     float derivative = 0.0f;
     if (dt > 0.0f) {
         derivative = (error - error_prev) / dt;
@@ -116,10 +110,8 @@ static float PID_Update(float setpoint, float feedback, float dt)
     error_prev = error;
     float kd_term = g_linefollow_pid_kd * derivative;
 
-    /* Calculate PID output */
     float output = kp_term + ki_term + kd_term;
 
-    /* Clamp output to limit */
     if (output > g_linefollow_pid_output_limit) {
         output = g_linefollow_pid_output_limit;
     } else if (output < -g_linefollow_pid_output_limit) {
@@ -130,13 +122,8 @@ static float PID_Update(float setpoint, float feedback, float dt)
 }
 
 /* Exported functions --------------------------------------------------------*/
-/**
-  * @brief  Initialize line follow control
-  * @retval None
-  */
 void LineFollow_Init(void)
 {
-    /* Initialize PID structure */
     s_pid.setpoint = 0.0f;
     s_pid.feedback = 0.0f;
     s_pid.error = 0.0f;
@@ -144,120 +131,106 @@ void LineFollow_Init(void)
     s_pid.error_prev = 0.0f;
     s_pid.output = 0.0f;
 
-    /* Reset timestamps */
     s_last_update_tick = HAL_GetTick();
-
-    /* Initialize motor */
-    Motor_Init();
-
-    /* Print configuration */
-    printf("\r\n=== Line Follow Init ===\r\n");
-    printf("Base speed: %d\r\n", g_linefollow_base_speed);
-    printf("PID: Kp=%.1f Ki=%.1f Kd=%.1f\r\n",
-           g_linefollow_pid_kp, g_linefollow_pid_ki, g_linefollow_pid_kd);
-    printf("Output limit: %.1f\r\n", g_linefollow_pid_output_limit);
-    printf("Control period: %d ms\r\n\r\n", g_linefollow_control_period);
 }
 
-/**
-  * @brief  Update line follow control - call in main loop
-  * @note   Implementation of simplified logic:
-  *         1. Calculate weighted sum from sensor readings
-  *         2. Check if any sensor detects the line (value = 1 = black line)
-  *         3. If no line detected (all sensors = 0): spin in place
-  *         4. If line detected and weighted_sum != 0: use PID to correct direction
-  *         5. If line detected and weighted_sum == 0: go straight at base speed
-  *            (covers centered, full black, symmetric sensor patterns)
-  * @retval None
-  */
 void LineFollow_Update(void)
 {
-    uint32_t current_tick = HAL_GetTick();
     SENSOR_Status_t sensors;
     int32_t weighted_sum;
     uint8_t line_detected;
+    uint8_t left_edge_detected;
+    uint8_t right_edge_detected;
 
-    /* Check if it's time to update (control period) */
-    if (current_tick - s_last_update_tick >= g_linefollow_control_period)
+    /* Read sensor data (0=black line, 1=white surface) */
+    SENSOR_ReadRaw(&sensors);
+
+    /* Calculate weighted sum (only uses LEFT1, CENTER, RIGHT1) */
+    weighted_sum = LineFollow_CalcWeightedSum(&sensors);
+
+    /* 检测外侧传感器是否检测到黑线 (LEFT2, RIGHT2) */
+    left_edge_detected  = (sensors.LEFT2 == 0);
+    right_edge_detected = (sensors.RIGHT2 == 0);
+
+    /* 检测是否检测到黑线 (使用所有5个传感器) */
+    line_detected = (sensors.LEFT2 == 0 || sensors.LEFT1 == 0 ||
+                     sensors.CENTER == 0 || sensors.RIGHT1 == 0 ||
+                     sensors.RIGHT2 == 0);
+
+    /* 极端情况保护：如果内侧三个传感器都未检测到黑线，但外侧有检测到 */
+    /* 说明线已严重偏移，需要大转向 */
+    if (line_detected && (sensors.LEFT1 == 1 && sensors.CENTER == 1 && sensors.RIGHT1 == 1))
     {
-        s_last_update_tick = current_tick;
+        if (left_edge_detected) {
+            /* 左侧外侧检测到黑线，大左转 */
+            s_left_speed  = g_linefollow_base_speed - 30;
+            s_right_speed = g_linefollow_base_speed + 30;
+        } else if (right_edge_detected) {
+            /* 右侧外侧检测到黑线，大右转 */
+            s_left_speed  = g_linefollow_base_speed + 30;
+            s_right_speed = g_linefollow_base_speed - 30;
+        }
+    }
+    else if (!line_detected) {
+        /* 完全丢线：原地旋转 */
+        s_left_speed  = g_linefollow_base_speed;
+        s_right_speed = g_linefollow_base_speed;
+    } else if (weighted_sum != 0) {
+        /* 正常循迹：使用PID correction */
+        float dt = (float)g_linefollow_control_period / 1000.0f;
+        float speed_diff = PID_Update(0.0f, (float)weighted_sum, dt);
+        int32_t speed_abs = my_abs((int32_t)speed_diff);
 
-        /* Read sensor data (value: 1=black line, 0=white surface) */
-        SENSOR_ReadRaw(&sensors);
-
-        /* Calculate weighted sum */
-        weighted_sum = LineFollow_CalcWeightedSum(&sensors);
-
-        /* Check if line is detected (any sensor detecting black line = 1) */
-        line_detected = (sensors.LEFT2 == 1 || sensors.LEFT1 == 1 ||
-                         sensors.CENTER == 1 || sensors.RIGHT1 == 1 ||
-                         sensors.RIGHT2 == 1);
-
-        if (!line_detected) {
-            /* No line detected: spin in place */
-            /* Left wheel forward, right wheel backward */
-            s_left_speed  = g_linefollow_base_speed;
-            s_right_speed = g_linefollow_base_speed;
-        } else if (weighted_sum != 0) {
-            /* Line detected with deviation: use PID to correct */
-            float dt = (float)g_linefollow_control_period / 1000.0f;
-            float speed_diff = PID_Update(0.0f, (float)weighted_sum, dt);
-            int32_t speed_abs = my_abs((int32_t)speed_diff);
-
-            if (speed_diff >= 0) {
-                /* Turn left: left wheel faster, right wheel slower */
-                s_left_speed  = g_linefollow_base_speed + speed_abs;
-                s_right_speed = g_linefollow_base_speed - speed_abs;
-            } else {
-                /* Turn right: left wheel slower, right wheel faster */
-                s_left_speed  = g_linefollow_base_speed - speed_abs;
-                s_right_speed = g_linefollow_base_speed + speed_abs;
-            }
-
-            /* Clamp speeds to 0-100 */
-            if (s_left_speed > 100) s_left_speed = 100;
-            if (s_right_speed > 100) s_right_speed = 100;
+        if (speed_diff >= 0) {
+            /* Turn left: left wheel faster, right wheel slower */
+            s_left_speed  = g_linefollow_base_speed + speed_abs;
+            s_right_speed = g_linefollow_base_speed - speed_abs;
         } else {
-            /* Line detected but weighted_sum == 0: go straight at base speed */
-            /* This covers: centered on line, full black, symmetric patterns */
-            s_left_speed = g_linefollow_base_speed;
-            s_right_speed = g_linefollow_base_speed;
+            /* Turn right: left wheel slower, right wheel faster */
+            s_left_speed  = g_linefollow_base_speed - speed_abs;
+            s_right_speed = g_linefollow_base_speed + speed_abs;
         }
 
-        /* Run motors */
-        if (!line_detected) {
-            /* No line detected: spin in place */
-            Motor_Run(MOTOR_ID_A, MOTOR_FWD, s_left_speed);
-            Motor_Run(MOTOR_ID_B, MOTOR_BWD, s_right_speed);
-        } else if (weighted_sum != 0) {
-            /* Line detected with deviation: normal line following */
-            Motor_Run(MOTOR_ID_A, MOTOR_FWD, s_left_speed);
-            Motor_Run(MOTOR_ID_B, MOTOR_FWD, s_right_speed);
-        } else {
-            /* Line detected but centered: continue forward */
-            Motor_Run(MOTOR_ID_A, MOTOR_FWD, s_left_speed);
-            Motor_Run(MOTOR_ID_B, MOTOR_FWD, s_right_speed);
-        }
+        /* Clamp speeds to 0-100 */
+        if (s_left_speed > 100) s_left_speed = 100;
+        if (s_right_speed > 100) s_right_speed = 100;
+
+        /* Ensure minimum speed */
+        if (s_left_speed < 10) s_left_speed = 10;
+        if (s_right_speed < 10) s_right_speed = 10;
+    } else {
+        /* Line detected but weighted_sum == 0: go straight */
+        s_left_speed = g_linefollow_base_speed;
+        s_right_speed = g_linefollow_base_speed;
+    }
+
+    /* Clamp speeds again after extreme case handling */
+    if (s_left_speed > 100) s_left_speed = 100;
+    if (s_right_speed > 100) s_right_speed = 100;
+    if (s_left_speed < 0) s_left_speed = 0;
+    if (s_right_speed < 0) s_right_speed = 0;
+
+    /* Run motors */
+    if (!line_detected) {
+        /* No line detected: spin in place */
+        Motor_Run(MOTOR_ID_A, MOTOR_FWD, s_left_speed);
+        Motor_Run(MOTOR_ID_B, MOTOR_BWD, s_right_speed);
+    } else if (weighted_sum != 0) {
+        /* Line detected with deviation */
+        Motor_Run(MOTOR_ID_A, MOTOR_FWD, s_left_speed);
+        Motor_Run(MOTOR_ID_B, MOTOR_FWD, s_right_speed);
+    } else {
+        /* Line detected but centered */
+        Motor_Run(MOTOR_ID_A, MOTOR_FWD, s_left_speed);
+        Motor_Run(MOTOR_ID_B, MOTOR_FWD, s_right_speed);
     }
 }
 
-/**
-  * @brief  Set base speed for both wheels
-  * @param  speed: Base speed (0-100)
-  * @retval None
-  */
 void LineFollow_SetBaseSpeed(uint16_t speed)
 {
     g_linefollow_base_speed = (speed > 100) ? 100 : speed;
 }
 
-/**
-  * @brief  Set PID parameters dynamically
-  * @param  kp: Proportional gain
-  * @param  ki: Integral gain
-  * @param  kd: Derivative gain
-  * @retval None
-  */
 void LineFollow_SetPID(float kp, float ki, float kd)
 {
     g_linefollow_pid_kp = kp;
@@ -265,61 +238,72 @@ void LineFollow_SetPID(float kp, float ki, float kd)
     g_linefollow_pid_kd = kd;
 }
 
-/**
-  * @brief  Set PID output limit
-  * @param  limit: Maximum speed difference output
-  * @retval None
-  */
 void LineFollow_SetOutputLimit(float limit)
 {
     g_linefollow_pid_output_limit = limit;
 }
 
-/**
-  * @brief  Set integral limit (for anti-windup)
-  * @param  limit: Integral windup limit
-  * @retval None
-  */
 void LineFollow_SetIntegralLimit(float limit)
 {
     g_linefollow_pid_integral_limit = limit;
 }
 
-/**
-  * @brief  Set control period in ms
-  * @param  period_ms: Control loop period in milliseconds
-  * @retval None
-  */
 void LineFollow_SetControlPeriod(uint16_t period_ms)
 {
     g_linefollow_control_period = (period_ms < 10) ? 10 : period_ms;
 }
 
-/**
-  * @brief  Get current weighted sum (for debugging)
-  * @note   Returns the weighted sum calculated in the last update cycle
-  * @retval int32_t: Current weighted sum (-5 to +5)
-  */
 int32_t LineFollow_GetWeightedSum(void)
 {
     SENSOR_Status_t sensors;
+    SENSOR_ReadRaw(&sensors);
     return LineFollow_CalcWeightedSum(&sensors);
 }
 
-/**
-  * @brief  Get current left wheel speed
-  * @retval uint16_t: Left wheel speed (0-100)
-  */
+float LineFollow_GetPosition(void)
+{
+    return (float)LineFollow_GetWeightedSum();
+}
+
 uint16_t LineFollow_GetLeftSpeed(void)
 {
     return s_left_speed;
 }
 
-/**
-  * @brief  Get current right wheel speed
-  * @retval uint16_t: Right wheel speed (0-100)
-  */
 uint16_t LineFollow_GetRightSpeed(void)
 {
     return s_right_speed;
+}
+
+void StraightLine_SetPID(void){
+    LineFollow_SetPID(3.5f, 0.0f, 0.1f);
+}
+
+void Circle_SetPID(void){
+    LineFollow_SetPID(4.0f, 0.0f, 0.1f);
+}
+
+void Curve_SetPID(void){
+    LineFollow_SetPID(4.0f, 0.0f, 0.0f);
+}
+
+/**
+  * @brief  Reset integral term (clear accumulated error)
+  * @retval None
+  */
+void LineFollow_ResetIntegral(void)
+{
+    s_pid.error_sum = 0.0f;
+}
+
+/**
+  * @brief  Get derivative (error_dot) for feedforward calculation
+  * @note   Calculates the rate of change of error: (error - error_prev) / dt
+  * @retval float: Derivative value (error_dot)
+  */
+float LineFollow_GetDerivative(void)
+{
+    float dt = (float)g_linefollow_control_period / 1000.0f;
+    if (dt <= 0.0f) return 0.0f;
+    return (s_pid.error - s_pid.error_prev) / dt;
 }

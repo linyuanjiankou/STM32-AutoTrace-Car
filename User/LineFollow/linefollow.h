@@ -38,16 +38,17 @@ typedef struct
     float output;        /* PID output */
 } PID_t;
 
-/* Sensor value definition: 1=black line, 0=white surface */
-/* All sensors use consistent logic: 1 indicates black line detection */
+/* Sensor value definition: 0=black line, 1=white surface */
+/* For PID calculation: LEFT1, CENTER, RIGHT1 are used */
+/* LEFT2, RIGHT2 are only for state switching and extreme case protection */
 
 /* Exported constants --------------------------------------------------------*/
 /* Sensor weight definitions - ordered from left to right */
-#define SENSOR_WEIGHT_LEFT2   -2.0f   /* Leftmost sensor */
+/* Note: Only LEFT1, CENTER, RIGHT1 are used for PID calculation */
+/* LEFT2 and RIGHT2 are only used for state switching and extreme case protection */
 #define SENSOR_WEIGHT_LEFT1   -1.0f   /* Left inner sensor */
 #define SENSOR_WEIGHT_CENTER   0.0f   /* Center sensor */
 #define SENSOR_WEIGHT_RIGHT1   1.0f   /* Right inner sensor */
-#define SENSOR_WEIGHT_RIGHT2   2.0f   /* Rightmost sensor */
 
 /* Exported parameters - modify these to tune performance */
 /* Base speed for both wheels (0-100) */
@@ -87,6 +88,9 @@ void LineFollow_SetBaseSpeed(uint16_t speed);
 
 /* Set PID parameters */
 void LineFollow_SetPID(float kp, float ki, float kd);
+void StraightLine_SetPID(void);
+void Circle_SetPID(void);
+void Curve_SetPID(void);
 
 /* Set PID output limit */
 void LineFollow_SetOutputLimit(float limit);
@@ -100,9 +104,18 @@ void LineFollow_SetControlPeriod(uint16_t period_ms);
 /* Get current weighted sum (for debugging) */
 int32_t LineFollow_GetWeightedSum(void);
 
+/* Get current position/deviation (for debugging) */
+float LineFollow_GetPosition(void);
+
 /* Get current left/right wheel speeds */
 uint16_t LineFollow_GetLeftSpeed(void);
 uint16_t LineFollow_GetRightSpeed(void);
+
+/* Get derivative (error_dot) for feedforward calculation */
+float LineFollow_GetDerivative(void);
+
+/* Reset integral term (clear accumulated error) */
+void LineFollow_ResetIntegral(void);
 
 #ifdef __cplusplus
 }
