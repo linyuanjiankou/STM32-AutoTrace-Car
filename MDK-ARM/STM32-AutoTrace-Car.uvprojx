@@ -340,7 +340,7 @@
               <MiscControls></MiscControls>
               <Define>USE_HAL_DRIVER,STM32F103xB</Define>
               <Undefine></Undefine>
-              <IncludePath>../Core/Inc;../Drivers/STM32F1xx_HAL_Driver/Inc;../Drivers/STM32F1xx_HAL_Driver/Inc/Legacy;../Drivers/CMSIS/Device/ST/STM32F1xx/Include;../Drivers/CMSIS/Include;../User/Motor;../User/Sys;..\User\Sensor;..\User\LineFollow;..\User\Circle;..\User\Mode;..\User\Triangle</IncludePath>
+              <IncludePath>../Core/Inc;../Drivers/STM32F1xx_HAL_Driver/Inc;../Drivers/STM32F1xx_HAL_Driver/Inc/Legacy;../Drivers/CMSIS/Device/ST/STM32F1xx/Include;../Drivers/CMSIS/Include;../User/Motor;../User/Sys;..\User\Sensor;..\Mode\Curve;..\Mode\LineFollowSequence;..\Mode\Circle;..\User\LineFollow;..\Mode\Triangle;..\Mode\ModeChange</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
@@ -555,14 +555,24 @@
               <FilePath>..\User\Triangle\triangle.c</FilePath>
             </File>
             <File>
-              <FileName>mode.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\User\Mode\mode.c</FilePath>
-            </File>
-            <File>
               <FileName>circle.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\User\Circle\circle.c</FilePath>
+              <FilePath>..\Mode\Circle\circle.c</FilePath>
+            </File>
+            <File>
+              <FileName>curve.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Mode\Curve\curve.c</FilePath>
+            </File>
+            <File>
+              <FileName>linefollowsequence.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Mode\LineFollowSequence\linefollowsequence.c</FilePath>
+            </File>
+            <File>
+              <FileName>mode.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Mode\ModeChange\mode.c</FilePath>
             </File>
           </Files>
         </Group>
