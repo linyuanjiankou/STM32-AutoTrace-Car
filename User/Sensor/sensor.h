@@ -6,7 +6,7 @@
   ******************************************************************************
   * @attention
   *
-  * Copyright (c) 2026 STMicroelectronics.
+  * Copyright (c) 2026 LiminalStill.
   * All rights reserved.
   *
   * This software is licensed under terms that can be found in the LICENSE file
@@ -67,10 +67,6 @@ typedef struct
 /* Right outer sensor */
 #define SENSOR_RIGHT2_PIN         GPIO_PIN_2
 #define SENSOR_RIGHT2_PORT        GPIOA
-
-/* Sensor read value definitions */
-#define SENSOR_LINE_DETECTED      0x01    /* Black line detected (HIGH) */
-#define SENSOR_NO_LINE            0x00    /* White surface detected (LOW) */
 
 /* USER CODE END EC */
 

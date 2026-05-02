@@ -343,5 +343,5 @@ User/Sensor/
 
 ## 许可证
 
-Copyright (c) 2026 STMicroelectronics.
+Copyright (c) 2026 LiminalStill.
 本软件根据 LICENSE 文件中规定的条款授权使用。

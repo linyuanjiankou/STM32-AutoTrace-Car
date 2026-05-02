@@ -26,9 +26,8 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "sensor.h"
-#include "triangle.h"
-#include "circle.h"
-#include "curve.h"
+#include "sys.h"
+#include "motor.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -49,7 +48,17 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-
+volatile uint32_t ms_counter = 0;
+volatile char flag_5ms = 0;
+volatile char flag_50ms = 0;
+volatile char flag_100ms = 0;
+volatile char flag_200ms = 0;
+uint16_t base_speed = 18;
+#define UART_RX_BUF_SIZE    32
+static char     g_uart_rx_buf[UART_RX_BUF_SIZE];
+static uint8_t  g_uart_rx_idx = 0;
+static uint8_t  g_uart_rx_byte = 0;
+volatile char   g_uart_rx_line_ready = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -97,13 +106,18 @@ int main(void)
   MX_ADC1_Init();
   MX_USART1_UART_Init();
   MX_TIM3_Init();
+  MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
+  HAL_TIM_Base_Start_IT(&htim2);
   Motor_Init();
+  Motor_SpeedPID_Init();
   SENSOR_Init();
-  Circle_Init();
-	// Curve_Init();
-  //Triangle_Init();
+  // LineFollow_Init();
+  // Mode_Init();
+  extern volatile uint32_t ms_counter;
+  extern volatile char flag_5ms, flag_50ms, flag_100ms, flag_200ms;
 
+  // HAL_UART_Receive_IT(&huart1, &g_uart_rx_byte, 1);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -113,13 +127,19 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-    Circle_Update();
-    //Triangle_Update();
+    // Mode_Update();
+    // Mode_UpdateCurrent();
 
+    if (flag_5ms) {
+      flag_5ms = 0;
+    }
+    if (flag_100ms) {
+      flag_100ms = 0;
+    }
   }
+
   /* USER CODE END 3 */
 }
-
 /**
   * @brief System Clock Configuration
   * @retval None
@@ -167,7 +187,32 @@ void SystemClock_Config(void)
 }
 
 /* USER CODE BEGIN 4 */
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
+  if (htim->Instance == TIM2) {
+      ms_counter++;
+      if (ms_counter % 5 == 0)    flag_5ms = 1;
+      if (ms_counter % 50 == 0)   flag_50ms = 1;
+      if (ms_counter % 100 == 0)  flag_100ms = 1;
+      if (ms_counter % 200 == 0)  flag_200ms = 1;
+  }
+}
 
+// void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+// {
+//     if (huart->Instance != USART1) return;
+
+//     if (g_uart_rx_byte == '\r') {
+//         /* skip CR from terminal \r\n */
+//     } else if (g_uart_rx_byte == '\n') {
+//         g_uart_rx_buf[g_uart_rx_idx] = '\0';
+//         g_uart_rx_line_ready = 1;
+//         g_uart_rx_idx = 0;
+//     } else {
+//         if (g_uart_rx_idx < (UART_RX_BUF_SIZE - 1))
+//             g_uart_rx_buf[g_uart_rx_idx++] = (char)g_uart_rx_byte;
+//     }
+//     HAL_UART_Receive_IT(&huart1, &g_uart_rx_byte, 1);
+// }
 /* USER CODE END 4 */
 
 /**

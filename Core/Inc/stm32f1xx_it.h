@@ -58,9 +58,13 @@ void SysTick_Handler(void);
 void EXTI1_IRQHandler(void);
 void EXTI2_IRQHandler(void);
 void EXTI3_IRQHandler(void);
+void TIM2_IRQHandler(void);
+void USART1_IRQHandler(void);
 void EXTI15_10_IRQHandler(void);
 /* USER CODE BEGIN EFP */
-
+extern volatile uint32_t ms_counter;
+extern volatile char flag_5ms;
+extern volatile char flag_100ms;
 /* USER CODE END EFP */
 
 #ifdef __cplusplus
