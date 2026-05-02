@@ -401,8 +401,8 @@ uint8_t g_motor_speed_pid_enable = 0;
 float g_motor_speed_pid_max_rpm = 800.0f;
 uint16_t g_motor_speed_pid_period = 5;     /* Speed PID update period, default 5ms */
 
-float g_motor_speed_pid_kp = 0.5f;
-float g_motor_speed_pid_ki = 0.01f;
+float g_motor_speed_pid_kp = 1.0f;
+float g_motor_speed_pid_ki = 0.05f;
 
 float g_motor_speed_pid_output_limit = 19661.0f;   /* Max absolute PID output correction */
 
