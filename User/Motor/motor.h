@@ -6,7 +6,7 @@
   ******************************************************************************
   * @attention
   *
-  * Copyright (c) 2026 STMicroelectronics.
+  * Copyright (c) 2026 LiminalStill.
   * All rights reserved.
   *
   * This software is licensed under terms that can be found in the LICENSE file
@@ -27,7 +27,6 @@ extern "C" {
 /* Includes ------------------------------------------------------------------*/
 #include "tim.h"
 #include "stm32f1xx_ll_tim.h"
-#include "stm32f1xx_ll_bus.h"
 
 /* Exported types ------------------------------------------------------------*/
 /* USER CODE BEGIN ET */
@@ -39,6 +38,16 @@ typedef enum
     MOTOR_FWD,         /* Forward */
     MOTOR_BWD          /* Backward */
 } MotorDirection_t;
+
+/* Incremental PI controller state (one instance per motor channel) */
+typedef struct
+{
+    float total_output;      /* Accumulated PID output (PWM correction offset) */
+    float prev_error;        /* Previous error */
+    float prev_prev_error;   /* Error two samples ago (reserved for future Kd) */
+    float output_limit;      /* Maximum absolute value of total_output */
+    float filtered_rpm;      /* Low-pass filtered actual RPM */
+} MotorPIDState_t;
 
 /* Motor structure */
 typedef struct
@@ -87,11 +96,9 @@ typedef struct
 #define MOTOR_B_ENCODER_CH2_PORT      GPIOA
 
 /* Speed control - Macro definitions for speed levels */
-#define MOTOR_SPEED_MIN               0
 #define MOTOR_SPEED_LOW               30          /* Low speed: 30% duty cycle */
 #define MOTOR_SPEED_MEDIUM            50          /* Medium speed: 50% duty cycle */
 #define MOTOR_SPEED_HIGH              70          /* High speed: 70% duty cycle */
-#define MOTOR_SPEED_MAX               100         /* Maximum speed: 100% duty cycle */
 
 /* PWM period for speed control (based on TIM1 clock) */
 /* TIM1 配置：Prescaler=0, Period=65535，因此 PWM 周期为 65535 */
@@ -179,6 +186,22 @@ void MotorA_UpdateSpeedRPM(void);
 void MotorB_UpdateSpeedRPM(void);
 void Motor_UpdateSpeedRPM(void);
 uint32_t Motor_GetSpeedRPM(uint8_t motor_id);
+float Motor_GetActualRPM(uint8_t motor_id);
+
+/* Speed PID control - closed-loop speed control using encoder feedback */
+extern uint8_t g_motor_speed_pid_enable;
+extern float g_motor_speed_pid_kp;
+extern float g_motor_speed_pid_ki;
+extern float g_motor_speed_pid_max_rpm;     // Output shaft RPM at 100% speed
+extern uint16_t g_motor_speed_pid_period;  /* 速度 PID 更新周期 (ms) */
+extern float g_motor_speed_pid_output_limit;   /* Default: 32767.0f */
+
+void Motor_SpeedPID_Init(void);
+void Motor_SpeedPID_UpdateAll(void);
+void Motor_SetPID(float kp, float ki, float output_limit);
+
+extern volatile uint32_t ms_counter;
+extern volatile char flag_5ms;
 
 /* USER CODE END EFP */
 
