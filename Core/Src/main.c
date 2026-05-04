@@ -112,13 +112,12 @@ int main(void)
   Motor_Init();
   Motor_SpeedPID_Init();
   SENSOR_Init();
-  LineFollow_Init();
+  // LineFollow_Init();
   // Mode_Init();
   extern volatile uint32_t ms_counter;
   extern volatile char flag_5ms, flag_50ms, flag_100ms, flag_200ms;
 
-  HAL_UART_Receive_IT(&huart1, &g_uart_rx_byte, 1);
-  StraightLine_SetPID();
+  // HAL_UART_Receive_IT(&huart1, &g_uart_rx_byte, 1);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -128,40 +127,15 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+    // Mode_Update();
+    // Mode_UpdateCurrent();
 
-    /* 5ms: inner motor speed PI */
     if (flag_5ms) {
       flag_5ms = 0;
-      g_motor_speed_pid_enable = 1;
-      Motor_SpeedPID_UpdateAll();
     }
-
-    /* 100ms: outer linefollow + Firewater telemetry */
     if (flag_100ms) {
       flag_100ms = 0;
-      LineFollow_Update();
-      // Motor_Run(MOTOR_ID_A, MOTOR_FWD, LineFollow_GetLeftSpeed());
-      // Motor_Run(MOTOR_ID_B, MOTOR_FWD, LineFollow_GetRightSpeed());
-
-      /* Firewater binary frame: 4 channels (target_L, actual_L, target_R, actual_R) */
-      // float ch[4];
-      // ch[0] = (float)LineFollow_GetLeftSpeed()  / 100.0f * g_motor_speed_pid_max_rpm;
-      // ch[1] = Motor_GetActualRPM(MOTOR_ID_A);
-      // ch[2] = (float)LineFollow_GetRightSpeed() / 100.0f * g_motor_speed_pid_max_rpm;
-      // ch[3] = Motor_GetActualRPM(MOTOR_ID_B);
-
-      // printf("%.3f,%.3f,%.3f,%.3f\n", ch[0], ch[1], ch[2], ch[3]);
     }
-
-    /* UART command: host sends kp,ki,kd\n -> sscanf -> SetPID */
-    // if (g_uart_rx_line_ready) {
-    //   g_uart_rx_line_ready = 0;
-    //   float kp, ki, kd;
-    //   if (sscanf(g_uart_rx_buf, "%f,%f,%f", &kp, &ki, &kd) == 3) {
-    //     LineFollow_SetPID(kp, ki, kd);
-    //     printf("PID: kp=%.3f ki=%.4f kd=%.4f\r\n", kp, ki, kd);
-    //   }
-    // }
   }
 
   /* USER CODE END 3 */
@@ -223,22 +197,22 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
   }
 }
 
-void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
-{
-    if (huart->Instance != USART1) return;
+// void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+// {
+//     if (huart->Instance != USART1) return;
 
-    if (g_uart_rx_byte == '\r') {
-        /* skip CR from terminal \r\n */
-    } else if (g_uart_rx_byte == '\n') {
-        g_uart_rx_buf[g_uart_rx_idx] = '\0';
-        g_uart_rx_line_ready = 1;
-        g_uart_rx_idx = 0;
-    } else {
-        if (g_uart_rx_idx < (UART_RX_BUF_SIZE - 1))
-            g_uart_rx_buf[g_uart_rx_idx++] = (char)g_uart_rx_byte;
-    }
-    HAL_UART_Receive_IT(&huart1, &g_uart_rx_byte, 1);
-}
+//     if (g_uart_rx_byte == '\r') {
+//         /* skip CR from terminal \r\n */
+//     } else if (g_uart_rx_byte == '\n') {
+//         g_uart_rx_buf[g_uart_rx_idx] = '\0';
+//         g_uart_rx_line_ready = 1;
+//         g_uart_rx_idx = 0;
+//     } else {
+//         if (g_uart_rx_idx < (UART_RX_BUF_SIZE - 1))
+//             g_uart_rx_buf[g_uart_rx_idx++] = (char)g_uart_rx_byte;
+//     }
+//     HAL_UART_Receive_IT(&huart1, &g_uart_rx_byte, 1);
+// }
 /* USER CODE END 4 */
 
 /**

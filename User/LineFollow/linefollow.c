@@ -13,7 +13,7 @@
   ******************************************************************************
   * @attention
   *
-  * Copyright (c) 2026 LiminalStill.
+  * Copyright (c) 2026 STMicroelectronics.
   * All rights reserved.
   *
   * This software is licensed under terms that can be found in the LICENSE file
@@ -46,7 +46,7 @@ float g_linefollow_pid_ki = 0.0f;
 float g_linefollow_pid_kd = 0.1f;
 
 /* PID output limit */
-float g_linefollow_pid_output_limit = 80.0f;
+float g_linefollow_pid_output_limit = 40.0f;
 
 /* Integral windup limit */
 float g_linefollow_pid_integral_limit = 20.0f;
@@ -116,8 +116,8 @@ static float PID_Update(float setpoint, float feedback, float dt)
     }
 
     /* Sync back to s_pid structure */
-    s_pid.error_prev = s_pid.error;  /* Save previous error before updating */
     s_pid.error = error;
+    s_pid.error_prev = error;
     s_pid.feedback = feedback;
     s_pid.output = output;
 
@@ -141,6 +141,9 @@ void LineFollow_Update(void)
 {
     SENSOR_Status_t sensors;
     int32_t weighted_sum;
+    uint8_t line_detected;
+    uint8_t left_edge_detected;
+    uint8_t right_edge_detected;
 
     /* Calculate real time interval (no early return — dt may vary) */
     uint32_t now = HAL_GetTick();
@@ -151,6 +154,15 @@ void LineFollow_Update(void)
 
     /* Calculate weighted sum (only uses LEFT1, CENTER, RIGHT1) */
     weighted_sum = LineFollow_CalcWeightedSum(&sensors);
+
+    /* 检测外侧传感器是否检测到黑线 (LEFT2, RIGHT2) */
+    left_edge_detected  = (sensors.LEFT2 == 0);
+    right_edge_detected = (sensors.RIGHT2 == 0);
+
+    /* 检测是否检测到黑线 (使用所有5个传感器) */
+    line_detected = (sensors.LEFT2 == 0 || sensors.LEFT1 == 0 ||
+                     sensors.CENTER == 0 || sensors.RIGHT1 == 0 ||
+                     sensors.RIGHT2 == 0);
 
     if (weighted_sum != 0) {
         /* 正常循迹：使用PID correction */
@@ -194,9 +206,9 @@ void LineFollow_SetOutputLimit(float limit)
     g_linefollow_pid_output_limit = limit;
 }
 
-void LineFollow_SetBaseSpeed(uint16_t speed)
+void LineFollow_SetIntegralLimit(float limit)
 {
-    g_linefollow_base_speed = speed;
+    g_linefollow_pid_integral_limit = limit;
 }
 
 int32_t LineFollow_GetWeightedSum(void)
@@ -222,7 +234,7 @@ uint16_t LineFollow_GetRightSpeed(void)
 }
 
 void StraightLine_SetPID(void){
-    LineFollow_SetPID(2.0f, 0.0f, 0.05f);
+    LineFollow_SetPID(3.5f, 0.0f, 0.1f);
 }
 
 void Circle_SetPID(void){
