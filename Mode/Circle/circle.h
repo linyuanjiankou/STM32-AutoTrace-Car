@@ -10,7 +10,7 @@
   ******************************************************************************
   * @attention
   *
-  * Copyright (c) 2026 STMicroelectronics.
+  * Copyright (c) 2026 LiminalStill.
   * All rights reserved.
   *
   * This software is licensed under terms that can be found in the LICENSE file
@@ -31,7 +31,6 @@ extern "C" {
 /* Includes ------------------------------------------------------------------*/
 #include "sensor.h"
 #include "motor.h"
-#include "mode.h"
 
 /* Exported types ------------------------------------------------------------*/
 /* State machine enumeration */
@@ -44,7 +43,7 @@ typedef enum {
 
 /* Exported constants --------------------------------------------------------*/
 /* Circle mode parameters - adjust these for circle mode tuning */
-#define CIRCLE_BASE_SPEED       30      /* Base speed for both wheels */
+#define CIRCLE_BASE_SPEED       20     /* Base speed for both wheels */
 #define CIRCLE_COUNT_TARGET     3       /* Number of LEFT2/RIGHT2 detections before stopping */
 
 /* Exported variables --------------------------------------------------------*/

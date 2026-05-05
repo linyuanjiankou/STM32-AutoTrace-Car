@@ -10,7 +10,7 @@
   ******************************************************************************
   * @attention
   *
-  * Copyright (c) 2026 STMicroelectronics.
+  * Copyright (c) 2026 LiminalStill.
   * All rights reserved.
   *
   * This software is licensed under terms that can be found in the LICENSE file
@@ -33,6 +33,11 @@ CircleState_t g_circle_current_state = CIRCLE_STATE_START;
 /* Number of LEFT2/RIGHT2 black line detections */
 int g_circle_detection_count = 0;
 
+/* Non-blocking edge detection + lost tolerance */
+static uint8_t s_right2_was_on_line = 0;   /* RIGHT2 上一帧是否在黑线上 */
+static uint8_t s_ensure_lost = 0;          /* 丢线容忍标记 */
+static uint32_t s_start_lost = 0;          /* 丢线计时起点 */
+
 /* Private function prototypes -----------------------------------------------*/
 static void Circle_EnterState(CircleState_t new_state);
 
@@ -40,6 +45,14 @@ static void Circle_EnterState(CircleState_t new_state);
 static void Circle_EnterState(CircleState_t new_state)
 {
     g_circle_current_state = new_state;
+    if (new_state == CIRCLE_STATE_TRACK) {
+        Motor_SetDirection(MOTOR_ID_A, MOTOR_FWD);
+        Motor_SetDirection(MOTOR_ID_B, MOTOR_FWD);
+        LineFollow_SetPID(2.85f, 0.0f, 0.0f);
+        LineFollow_SetBaseSpeed(CIRCLE_BASE_SPEED);
+        LineFollow_ResetIntegral();
+        Motor_ResetPIDOutput();
+    }
 }
 
 /* Exported functions --------------------------------------------------------*/
@@ -51,7 +64,7 @@ void Circle_Init(void)
     /* Set PID parameters for circle mode using LineFollow's API */
     Circle_SetPID();    /* Kp, Ki, Kd */
     LineFollow_SetBaseSpeed(CIRCLE_BASE_SPEED);
-    LineFollow_SetOutputLimit(60.0f);
+    LineFollow_SetOutputLimit(19660.5f);
 }
 
 void Circle_Update(void)
@@ -72,38 +85,39 @@ void Circle_Update(void)
             break;
 
         case CIRCLE_STATE_TRACK:
-            LineFollow_ResetIntegral();
-            /* Use LineFollow for line tracking with LEFT1, CENTER, RIGHT1 */
-            Circle_SetPID();
             LineFollow_Update();
 
-            left_sp = LineFollow_GetLeftSpeed();
-            right_sp = LineFollow_GetRightSpeed();
-
-            /* Check for RIGHT2 black line detection (value = 0) */
+            /* RIGHT2 黑线检测：非阻塞边沿检测（避免阻塞主循环影响 5ms 内环 PI） */
             SENSOR_ReadRaw(&sensors);
-            if (!(sensors.RIGHT2)) {
-                /* Wait for sensor to leave the line to avoid multiple counts */
-                while (!(sensors.RIGHT2)) {
-                    SENSOR_ReadRaw(&sensors);
-                    Motor_Run(MOTOR_ID_A, MOTOR_FWD, left_sp);
-                    Motor_Run(MOTOR_ID_B, MOTOR_FWD, right_sp);
-                    if (g_circle_detection_count >= CIRCLE_COUNT_TARGET) {
+            if (!sensors.RIGHT2) {
+                if (!s_right2_was_on_line) {
+                    g_circle_detection_count++;
+                    s_right2_was_on_line = 1;
+                }
+            } else {
+                s_right2_was_on_line = 0;
+            }
+
+            /* 丢线容忍：等 200ms 让 PID 自行修正 */
+            {
+                uint8_t black_line_detected = (!(sensors.LEFT1) || !(sensors.CENTER) || !(sensors.RIGHT1));
+                if (!black_line_detected) {
+                    if (s_ensure_lost == 0) {
+                        s_start_lost = HAL_GetTick();
+                        s_ensure_lost = 1;
+                    } else if (HAL_GetTick() - s_start_lost > 200) {
+                        s_ensure_lost = 0;
+                        Circle_EnterState(CIRCLE_STATE_LOST);
                         break;
                     }
+                } else {
+                    s_ensure_lost = 0;
                 }
-                g_circle_detection_count++;
             }
 
-            /* Check if we've completed the required count */
+            /* 完成计数 → 停止 */
             if (g_circle_detection_count >= CIRCLE_COUNT_TARGET) {
                 Circle_EnterState(CIRCLE_STATE_STOP);
-            }
-
-            /* Check for lost line (all sensors are white) */
-            if (sensors.LEFT2 && sensors.LEFT1 && sensors.CENTER &&
-                sensors.RIGHT1 && sensors.RIGHT2) {
-                Circle_EnterState(CIRCLE_STATE_LOST);
             }
             break;
 
