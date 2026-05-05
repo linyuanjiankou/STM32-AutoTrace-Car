@@ -7,7 +7,7 @@
   ******************************************************************************
   * @attention
   *
-  * Copyright (c) 2026 STMicroelectronics.
+  * Copyright (c) 2026 LiminalStill.
   * All rights reserved.
   *
   * This software is licensed under terms that can be found in the LICENSE file
@@ -27,16 +27,14 @@ extern "C" {
 
 /* Includes ------------------------------------------------------------------*/
 #include "sensor.h"
-#include "motor.h"
-#include "mode.h"
 
 /* Exported types ------------------------------------------------------------*/
 /* State machine enumeration */
 typedef enum {
     TRIANGLE_STATE_START,   /* Initialization state */
     TRIANGLE_STATE_TRACK,   /* Normal line following (black line = 0) */
-    TRIANGLE_STATE_WAIT,    /* Waiting for turning*/
     TRIANGLE_STATE_TURN,    /* Turning when >= 3 sensors detect black line */
+    TRIANGLE_STATE_WAIT,    /* Waiting for line to be detected again */
     TRIANGLE_STATE_LOST,    /* Line lost (all sensors = 1, white surface) */
     TRIANGLE_STATE_STOP     /* Triangle complete, stop */
 } TriangleState_t;
@@ -47,22 +45,17 @@ typedef enum {
 #define TURN_RIGHT_DIR  1   /* Left wheel FWD, Right wheel BWD */
 
 /* StraightLine speed*/
-#define STRAIGHT_SPEED  20
-/* Turn speed */
-#define TURN_SPEED      15
+#define STRAIGHT_SPEED  30
+#define OUTER_TURN_SPEED      20
+#define INNER_TURN_SPEED      10
+#define WAIT_TIME_MS    30
 
 /* Lost line search speed */
 #define LOST_SEARCH_SPEED 12
 
-/* Turn completion timeout in ms (safety fallback) */
-#define TURN_COMPLETE_TIMEOUT 5000
-
 /* Exported variables --------------------------------------------------------*/
 /* Current triangle state */
 extern TriangleState_t g_triangle_current_state;
-
-/* Number of turns completed (0-3) */
-extern int g_triangle_turn_count;
 
 /* Exported function prototypes ---------------------------------------------*/
 /* Initialize triangle mode */

@@ -9,7 +9,7 @@
   ******************************************************************************
   * @attention
   *
-  * Copyright (c) 2026 STMicroelectronics.
+  * Copyright (c) 2026 LiminalStill.
   * All rights reserved.
   *
   * This software is licensed under terms that can be found in the LICENSE file
@@ -22,6 +22,7 @@
 
 /* Includes ------------------------------------------------------------------*/
 #include "triangle.h"
+#include "motor.h"
 #include "linefollow.h"
 #include "main.h"
 
@@ -29,20 +30,34 @@
 TriangleState_t g_triangle_current_state = TRIANGLE_STATE_START;
 
 static uint8_t s_direction_memory = TURN_RIGHT_DIR;
-static uint32_t s_state_entry_tick = 0;
-static uint8_t s_in_turn_debounce = 0;
-static uint8_t s_turn_complete_flag = 0;
-static uint8_t s_post_turn_debounce = 0;  // 退出转弯后的防抖
 static char count = 0; //记录转弯几次
+static uint8_t s_reentry_count = 8;
+static char s_ensure_lost = 0;
+static uint32_t s_start_lost = 0;
+// static uint32_t s_wait_entry_tick = 0;
+// static char s_turn_saw_right2_clear = 0;
+static char pass_turn = 0;
 
 /* Private function prototypes -----------------------------------------------*/
 static void Triangle_EnterState(TriangleState_t new_state);
+static uint8_t IsAllWhite(SENSOR_Status_t *sensors);
 
 /* Private functions ---------------------------------------------------------*/
 static void Triangle_EnterState(TriangleState_t new_state)
 {
     g_triangle_current_state = new_state;
-    s_state_entry_tick = HAL_GetTick();
+    if (new_state == TRIANGLE_STATE_TRACK){
+        Motor_SetDirection(MOTOR_ID_A, MOTOR_FWD);
+        Motor_SetDirection(MOTOR_ID_B, MOTOR_FWD);
+        LineFollow_SetPID(2.4f, 0.0f, 0.11f);
+        LineFollow_SetBaseSpeed(STRAIGHT_SPEED);
+        LineFollow_ResetIntegral();
+        Motor_ResetPIDOutput();
+        s_start_lost = HAL_GetTick();
+        s_ensure_lost = 0;
+    }else if (new_state == TRIANGLE_STATE_TURN){
+        pass_turn = 0;
+    }
 }
 
 /* Exported functions --------------------------------------------------------*/
@@ -50,14 +65,10 @@ void Triangle_Init(void)
 {
     g_triangle_current_state = TRIANGLE_STATE_START;
     s_direction_memory = TURN_RIGHT_DIR;
-    s_state_entry_tick = HAL_GetTick();
-    s_in_turn_debounce = 0;
-    s_turn_complete_flag = 0;
-    s_post_turn_debounce = 0;
 
     StraightLine_SetPID();
     LineFollow_SetBaseSpeed(STRAIGHT_SPEED);
-    LineFollow_SetOutputLimit(50.0f);
+    LineFollow_SetOutputLimit(19660.5f);
 }
 
 void Triangle_Update(void)
@@ -68,95 +79,136 @@ void Triangle_Update(void)
     SENSOR_ReadRaw(&sensors);
 
     /* 黑线=0，白线=1 */
-    black_line_detected = (!(sensors.LEFT2) || !(sensors.LEFT1) || !(sensors.CENTER) ||
-                           !(sensors.RIGHT1) || !(sensors.RIGHT2));
+    black_line_detected = (!(sensors.LEFT1) || !(sensors.CENTER) || !(sensors.RIGHT1));
 
     switch (g_triangle_current_state) {
-        case TRIANGLE_STATE_START:
+        case TRIANGLE_STATE_START:{
             count = 0;
+            // s_wait_entry_tick = 0;
+            // s_turn_saw_right2_clear = 0;
+            pass_turn = 0;
             s_direction_memory = TURN_RIGHT_DIR;
-            s_in_turn_debounce = 0;
-            s_turn_complete_flag = 0;
             Triangle_EnterState(TRIANGLE_STATE_TRACK);
             break;
-
-        case TRIANGLE_STATE_TRACK:
-            LineFollow_ResetIntegral();
+        }
+        case TRIANGLE_STATE_TRACK:{
+            // if (s_reentry_count > 0) {
+            //     LineFollow_SetPID(3.0f, 0.0f, 0.1f);
+            //     s_reentry_count--;
+            //     if (s_reentry_count == 0){
+            //         LineFollow_SetPID(2.0f, 1.0f, 0.08f);
+            //         LineFollow_SetBaseSpeed(STRAIGHT_SPEED);
+            //     }  // 恢复正常速度
+            // }
             LineFollow_Update();
 
-            /* 检测LEFT2或RIGHT2检测到黑线（值为0）时设置转弯标志 */
-            if (!(sensors.LEFT2) || !(sensors.RIGHT2)) {
-                s_post_turn_debounce = 1;
+            /* RIGHT2检测到黑线（值为0）时设置转弯标志 */
+            if (!sensors.RIGHT2) {
+                // s_wait_entry_tick = HAL_GetTick();
+                Triangle_EnterState(TRIANGLE_STATE_TURN);
             }
 
-            /* 丢失黑线 - 所有传感器都是白线 */
+            /* 丢线容忍：等 200ms 让 PID 自行修正 */
             if (!black_line_detected) {
-                s_in_turn_debounce = 0;
-                Triangle_EnterState(TRIANGLE_STATE_LOST);
-            }
-
-            /* 退出转弯后的防抖：避免立即再次进入转弯 */
-            if (s_post_turn_debounce) {
-                /* 保持在TRACK状态，等待传感器离开黑线 */
-                if (!(sensors.RIGHT2)) {
-                    s_post_turn_debounce = 0;
-                    Triangle_EnterState(TRIANGLE_STATE_WAIT);
+                if (s_ensure_lost == 0) {
+                    /* 第一次丢线：记录时间，不干预电机 */
+                    s_start_lost = HAL_GetTick();
+                    s_ensure_lost = 1;
+                } else if (HAL_GetTick() - s_start_lost > 200) {
+                    /* 超时未恢复 → 真正丢线 */
+                    s_ensure_lost = 0;
+                    Triangle_EnterState(TRIANGLE_STATE_LOST);
+                    break;
                 }
+            } else {
+                /* 线还在，清零容忍标记 */
+                s_ensure_lost = 0;
+                s_start_lost = 0;
             }
 
             /* 转弯三次，结束该模式*/
-            if (count >= 3){
-                Triangle_EnterState(TRIANGLE_STATE_STOP);
+            // if (count > 3){
+            //     Triangle_EnterState(TRIANGLE_STATE_STOP);
+            // }
+            break;
+            
+        }
+
+        case TRIANGLE_STATE_TURN:{
+            SENSOR_ReadRaw(&sensors);
+            black_line_detected = (!(sensors.LEFT1) || !(sensors.CENTER) || !(sensors.RIGHT1));
+
+            if (!pass_turn) {
+                /* Phase 1：左转，等 CENTER 变白（离开原线） */
+                Motor_Run(MOTOR_ID_A, MOTOR_FWD, OUTER_TURN_SPEED);
+                Motor_Run(MOTOR_ID_B, MOTOR_BWD, INNER_TURN_SPEED);
+                s_direction_memory = TURN_LEFT_DIR;
+                SENSOR_ReadRaw(&sensors);
+
+                if (sensors.CENTER) {
+                    pass_turn = 1;
+                }
+            } else {
+                /* Phase 2：继续旋转，直到检测到新黑线 */
+                Motor_Run(MOTOR_ID_A, MOTOR_FWD, OUTER_TURN_SPEED / 2);
+                Motor_Run(MOTOR_ID_B, MOTOR_BWD, INNER_TURN_SPEED);
+                SENSOR_ReadRaw(&sensors);
+
+                if (black_line_detected) {
+                    Motor_Stop(MOTOR_ID_A);
+                    Motor_Stop(MOTOR_ID_B);
+                    pass_turn = 0;
+                    count++;
+                    Triangle_EnterState(TRIANGLE_STATE_TRACK);
+                }
             }
             break;
+        }
 
-        case TRIANGLE_STATE_WAIT:
-            count++;
-            if (count >= 3){
-                Triangle_EnterState(TRIANGLE_STATE_STOP);
-            }
-            while (!(sensors.RIGHT2)) {
-                Motor_Run(MOTOR_ID_A, MOTOR_FWD, STRAIGHT_SPEED);
-                Motor_Run(MOTOR_ID_B, MOTOR_FWD, STRAIGHT_SPEED);
-            }
-            Triangel_EnterState(TRIANGLE_STATE_TURN);
+        case TRIANGLE_STATE_WAIT:{
+            SENSOR_ReadRaw(&sensors);
 
-        case TRIANGLE_STATE_TURN:
-            LineFollow_ResetIntegral();
-            /* 默认右转：左轮前进，右轮后退 */
-            Motor_Run(MOTOR_ID_A, MOTOR_FWD, TURN_SPEED);
-            Motor_Run(MOTOR_ID_B, MOTOR_FWD, TURN_SPEED-10);
-
-            /* 检测退出转弯条件：只有一个传感器检测到黑线，其他都是白线 */
-            uint8_t black_count = 0;
-            if (!(sensors.LEFT2))  black_count++;
-            if (!(sensors.LEFT1))  black_count++;
-            if (!(sensors.CENTER)) black_count++;
-            if (!(sensors.RIGHT1)) black_count++;
-            if (!(sensors.RIGHT2)) black_count++;
-
-            /* 只有一个传感器检测到黑线时退出转弯 */
-            if (black_count == 1) {
-                s_turn_complete_flag = 1;
-                s_post_turn_debounce = 1;  // 设置后防抖
+            /* CENTER 对准黑线 → 成功切入 TRACK */
+            if (!(sensors.CENTER)) {
+                Motor_Stop(MOTOR_ID_A);
+                Motor_Stop(MOTOR_ID_B);
                 Triangle_EnterState(TRIANGLE_STATE_TRACK);
-                count +=1;
+                break;
             }
-            break;
 
-        case TRIANGLE_STATE_LOST:
-            /* 丢失黑线时继续按原方向旋转搜索 */
-            if (s_direction_memory == TURN_LEFT_DIR) {
+            /* 线在左侧 → 向右低速修 */
+            if (!(sensors.LEFT1) || !(sensors.LEFT2)) {
                 Motor_Run(MOTOR_ID_A, MOTOR_BWD, LOST_SEARCH_SPEED);
                 Motor_Run(MOTOR_ID_B, MOTOR_FWD, LOST_SEARCH_SPEED);
-            } else {
+            }
+            /* 线在右侧 → 向左低速修 */
+            else if (!(sensors.RIGHT1) || !(sensors.RIGHT2)) {
                 Motor_Run(MOTOR_ID_A, MOTOR_FWD, LOST_SEARCH_SPEED);
                 Motor_Run(MOTOR_ID_B, MOTOR_BWD, LOST_SEARCH_SPEED);
             }
+            /* 都不见 → 丢线，向右回转 */
+            else {
+                Motor_Run(MOTOR_ID_A, MOTOR_BWD, LOST_SEARCH_SPEED);
+                Motor_Run(MOTOR_ID_B, MOTOR_FWD, LOST_SEARCH_SPEED);
+            }
+            break;
+        }
+
+        case TRIANGLE_STATE_LOST:
+            /* 丢失黑线时继续向反方向旋转搜索 */
+            if (s_direction_memory == TURN_LEFT_DIR) {
+                // Motor_Stop(MOTOR_ID_A);
+                Motor_Run(MOTOR_ID_A, MOTOR_BWD, INNER_TURN_SPEED);
+                // Motor_Stop(MOTOR_ID_B);
+                Motor_Run(MOTOR_ID_B, MOTOR_FWD, INNER_TURN_SPEED);
+            } else {
+                Motor_Run(MOTOR_ID_A, MOTOR_FWD, INNER_TURN_SPEED);
+                Motor_Run(MOTOR_ID_B, MOTOR_BWD, INNER_TURN_SPEED);
+                // Motor_Stop(MOTOR_ID_A);
+            }
 
             /* 检测到黑线后返回跟踪状态 */
-            if (black_line_detected) {
-                s_in_turn_debounce = 0;
+            if (!(sensors.CENTER)) {
                 Triangle_EnterState(TRIANGLE_STATE_TRACK);
             }
             break;
@@ -170,4 +222,9 @@ void Triangle_Update(void)
             Triangle_EnterState(TRIANGLE_STATE_START);
             break;
     }
+}
+static uint8_t IsAllWhite(SENSOR_Status_t *sensors)
+{
+    return (sensors->LEFT2 && sensors->LEFT1 && sensors->CENTER &&
+            sensors->RIGHT1 && sensors->RIGHT2);
 }
