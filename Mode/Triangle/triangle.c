@@ -40,7 +40,6 @@ static char pass_turn = 0;
 
 /* Private function prototypes -----------------------------------------------*/
 static void Triangle_EnterState(TriangleState_t new_state);
-static uint8_t IsAllWhite(SENSOR_Status_t *sensors);
 
 /* Private functions ---------------------------------------------------------*/
 static void Triangle_EnterState(TriangleState_t new_state)
@@ -92,14 +91,6 @@ void Triangle_Update(void)
             break;
         }
         case TRIANGLE_STATE_TRACK:{
-            // if (s_reentry_count > 0) {
-            //     LineFollow_SetPID(3.0f, 0.0f, 0.1f);
-            //     s_reentry_count--;
-            //     if (s_reentry_count == 0){
-            //         LineFollow_SetPID(2.0f, 1.0f, 0.08f);
-            //         LineFollow_SetBaseSpeed(STRAIGHT_SPEED);
-            //     }  // 恢复正常速度
-            // }
             LineFollow_Update();
 
             /* RIGHT2检测到黑线（值为0）时设置转弯标志 */
@@ -223,8 +214,4 @@ void Triangle_Update(void)
             break;
     }
 }
-static uint8_t IsAllWhite(SENSOR_Status_t *sensors)
-{
-    return (sensors->LEFT2 && sensors->LEFT1 && sensors->CENTER &&
-            sensors->RIGHT1 && sensors->RIGHT2);
-}
+
