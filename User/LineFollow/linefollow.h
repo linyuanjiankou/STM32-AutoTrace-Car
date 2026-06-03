@@ -6,7 +6,7 @@
   ******************************************************************************
   * @attention
   *
-  * Copyright (c) 2026 STMicroelectronics.
+  * Copyright (c) 2026 LiminalStill.
   * All rights reserved.
   *
   * This software is licensed under terms that can be found in the LICENSE file
@@ -39,23 +39,12 @@ typedef struct
 } PID_t;
 
 /* Sensor value definition: 0=black line, 1=white surface */
-/* For PID calculation: LEFT1, CENTER, RIGHT1 are used */
-/* LEFT2, RIGHT2 are only for state switching and extreme case protection */
-
-/* Exported constants --------------------------------------------------------*/
-/* Sensor weight definitions - ordered from left to right */
-/* Note: Only LEFT1, CENTER, RIGHT1 are used for PID calculation */
-/* LEFT2 and RIGHT2 are only used for state switching and extreme case protection */
-#define SENSOR_WEIGHT_LEFT1   -1.0f   /* Left inner sensor */
-#define SENSOR_WEIGHT_CENTER   0.0f   /* Center sensor */
-#define SENSOR_WEIGHT_RIGHT1   1.0f   /* Right inner sensor */
+/* Weighted sum uses only LEFT1, CENTER, RIGHT1: LEFT1*(-1) + CENTER*0 + RIGHT1*1 */
+/* Range: -2 (far left) to +2 (far right) */
 
 /* Exported parameters - modify these to tune performance */
 /* Base speed for both wheels (0-100) */
 extern uint16_t g_linefollow_base_speed;
-
-/* Max speed adjustment (0-100) */
-extern uint16_t g_linefollow_max_adjust;
 
 /* PID parameters for deviation control */
 /* Kp: Proportional gain - higher = more aggressive correction */
@@ -92,8 +81,8 @@ void Curve_SetPID(void);
 /* Set PID output limit */
 void LineFollow_SetOutputLimit(float limit);
 
-/* Set integral limit (for anti-windup) */
-void LineFollow_SetIntegralLimit(float limit);
+/* Set base speed */
+void LineFollow_SetBaseSpeed(uint16_t speed);
 
 /* Get current weighted sum (for debugging) */
 int32_t LineFollow_GetWeightedSum(void);

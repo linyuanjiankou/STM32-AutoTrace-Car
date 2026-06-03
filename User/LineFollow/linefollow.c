@@ -13,7 +13,7 @@
   ******************************************************************************
   * @attention
   *
-  * Copyright (c) 2026 STMicroelectronics.
+  * Copyright (c) 2026 LiminalStill.
   * All rights reserved.
   *
   * This software is licensed under terms that can be found in the LICENSE file
@@ -41,12 +41,12 @@ static uint32_t s_last_update_tick = 0;
 uint16_t g_linefollow_base_speed = 10;
 
 /* PID parameters for deviation control */
-float g_linefollow_pid_kp = 3.5f;
+float g_linefollow_pid_kp = 2.0f;
 float g_linefollow_pid_ki = 0.0f;
-float g_linefollow_pid_kd = 0.1f;
+float g_linefollow_pid_kd = 0.05f;
 
 /* PID output limit */
-float g_linefollow_pid_output_limit = 40.0f;
+float g_linefollow_pid_output_limit = 80.0f;
 
 /* Integral windup limit */
 float g_linefollow_pid_integral_limit = 20.0f;
@@ -60,8 +60,8 @@ uint16_t g_linefollow_control_period = 20;
   * @brief  Calculate weighted sensor deviation for PID
   * @note   Uses only LEFT1, CENTER, RIGHT1 sensors
   *         Weighted sum: LEFT1*(-1) + CENTER*0 + RIGHT1*1
-  *         Sensor readings: 0=black line, 1=white surface
-  *         Conversion: 0(黑线) -> -1, 1(白线) -> 1
+  *         Sensor readings: 1=black line, 0=white surface
+  *         Conversion: 1(黑线) -> -1, 0(白面) -> +1
   *         LEFT2 and RIGHT2 are NOT used for PID calculation
   *         They are only used for line detection/state switching
   * @retval int32_t: Weighted sum value (-2 to +2)
@@ -70,11 +70,11 @@ static int32_t LineFollow_CalcWeightedSum(SENSOR_Status_t *sensors)
 {
     int32_t weighted_sum = 0;
 
-    /* 只使用 LEFT1, CENTER, RIGHT1 三个传感器进行PID计算 */
-    /* 将 0/1 转换为 -1/1: 0(黑线) -> -1, 1(白线) -> 1 */
-    int32_t s_left1  = (sensors->LEFT1  == 0) ? -1 : 1;
-    int32_t s_center = (sensors->CENTER == 0) ? -1 : 1;
-    int32_t s_right1 = (sensors->RIGHT1 == 0) ? -1 : 1;
+    /* 传感器：1=黑线, 0=白面 */
+    /* 转换为：1(黑线)->-1, 0(白面)->+1 */
+    int32_t s_left1  = (sensors->LEFT1)  ? -1 : 1;
+    int32_t s_center = (sensors->CENTER) ? -1 : 1;
+    int32_t s_right1 = (sensors->RIGHT1) ? -1 : 1;
 
     weighted_sum += s_left1  * (-1);
     weighted_sum += s_center * 0;
@@ -103,7 +103,7 @@ static float PID_Update(float setpoint, float feedback, float dt)
 
     float derivative = 0.0f;
     if (dt > 0.0f) {
-        derivative = (error - s_pid.error_prev) / dt;
+        derivative = (error - s_pid.error) / dt;
     }
     float kd_term = g_linefollow_pid_kd * derivative;
 
@@ -116,8 +116,8 @@ static float PID_Update(float setpoint, float feedback, float dt)
     }
 
     /* Sync back to s_pid structure */
+    s_pid.error_prev = s_pid.error;  /* Save previous error before updating */
     s_pid.error = error;
-    s_pid.error_prev = error;
     s_pid.feedback = feedback;
     s_pid.output = output;
 
@@ -141,56 +141,43 @@ void LineFollow_Update(void)
 {
     SENSOR_Status_t sensors;
     int32_t weighted_sum;
-    uint8_t line_detected;
-    uint8_t left_edge_detected;
-    uint8_t right_edge_detected;
 
     /* Calculate real time interval (no early return — dt may vary) */
     uint32_t now = HAL_GetTick();
     float dt = (float)(now - s_last_update_tick) / 1000.0f;
 
-    /* Read sensor data (0=black line, 1=white surface) */
+    /* Read sensor`	data (0=black line, 1=white surface) */
     SENSOR_ReadRaw(&sensors);
 
     /* Calculate weighted sum (only uses LEFT1, CENTER, RIGHT1) */
     weighted_sum = LineFollow_CalcWeightedSum(&sensors);
-
-    /* 检测外侧传感器是否检测到黑线 (LEFT2, RIGHT2) */
-    left_edge_detected  = (sensors.LEFT2 == 0);
-    right_edge_detected = (sensors.RIGHT2 == 0);
-
-    /* 检测是否检测到黑线 (使用所有5个传感器) */
-    line_detected = (sensors.LEFT2 == 0 || sensors.LEFT1 == 0 ||
-                     sensors.CENTER == 0 || sensors.RIGHT1 == 0 ||
-                     sensors.RIGHT2 == 0);
 
     if (weighted_sum != 0) {
         /* 正常循迹：使用PID correction */
         float speed_diff = PID_Update(0.0f, (float)weighted_sum, dt);
         int32_t speed_abs = my_abs((int32_t)speed_diff);
 
-        if (speed_diff >= 0) {
-            /* Turn left: left wheel faster, right wheel slower */
-            s_left_speed  = g_linefollow_base_speed + speed_abs;
-            s_right_speed = g_linefollow_base_speed - speed_abs;
-        } else {
-            /* Turn right: left wheel slower, right wheel faster */
-            s_left_speed  = g_linefollow_base_speed - speed_abs;
-            s_right_speed = g_linefollow_base_speed + speed_abs;
-        }
+        int32_t left_raw  = (int32_t)g_linefollow_base_speed + (speed_diff <= 0 ?  speed_abs : -speed_abs);
+        int32_t right_raw = (int32_t)g_linefollow_base_speed + (speed_diff <= 0 ? -speed_abs :  speed_abs);
 
-        /* Clamp speeds to 0-100 */
-        if (s_left_speed > 100) s_left_speed = 100;
-        if (s_right_speed > 100) s_right_speed = 100;
+        // Clamp
+        if (left_raw  > 100) left_raw  = 100;
+        if (left_raw  < 10)  left_raw  = 10;
+        if (right_raw > 100) right_raw = 100;
+        if (right_raw < 10)  right_raw = 10;
 
-        /* Ensure minimum speed */
-        if (s_left_speed < 10) s_left_speed = 10;
-        if (s_right_speed < 10) s_right_speed = 10;
+        s_left_speed  = (uint16_t)left_raw;
+        s_right_speed = (uint16_t)right_raw;
+        
     } else {
         /* Line detected but weighted_sum == 0: go straight */
         s_left_speed = g_linefollow_base_speed;
         s_right_speed = g_linefollow_base_speed;
     }
+
+    /* Write speed targets to motor speed setpoint for inner PI loop */
+    Motor_SetSpeed(MOTOR_ID_A, s_left_speed);
+    Motor_SetSpeed(MOTOR_ID_B, s_right_speed);
     s_last_update_tick = now;
 }
 
@@ -206,9 +193,9 @@ void LineFollow_SetOutputLimit(float limit)
     g_linefollow_pid_output_limit = limit;
 }
 
-void LineFollow_SetIntegralLimit(float limit)
+void LineFollow_SetBaseSpeed(uint16_t speed)
 {
-    g_linefollow_pid_integral_limit = limit;
+    g_linefollow_base_speed = speed;
 }
 
 int32_t LineFollow_GetWeightedSum(void)
@@ -234,11 +221,11 @@ uint16_t LineFollow_GetRightSpeed(void)
 }
 
 void StraightLine_SetPID(void){
-    LineFollow_SetPID(3.5f, 0.0f, 0.1f);
+    LineFollow_SetPID(1.5f, 0.0f, 0.0f);
 }
 
 void Circle_SetPID(void){
-    LineFollow_SetPID(4.0f, 0.0f, 0.1f);
+    LineFollow_SetPID(2.85f, 0.0f, 0.0f);
 }
 
 void Curve_SetPID(void){
