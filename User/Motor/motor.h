@@ -199,6 +199,7 @@ extern float g_motor_speed_pid_output_limit;   /* Default: 32767.0f */
 void Motor_SpeedPID_Init(void);
 void Motor_SpeedPID_UpdateAll(void);
 void Motor_SetPID(float kp, float ki, float output_limit);
+void Motor_ResetPIDOutput(void);
 
 extern volatile uint32_t ms_counter;
 extern volatile char flag_5ms;

@@ -423,7 +423,7 @@ static void MotorChannel_PID_Calc(MotorChannel_t *ch, float target_rpm, float dt
     if (actual_rpm < 0.0f) actual_rpm = -actual_rpm;
 
     /* Low-pass filter to suppress encoder quantization noise */
-    ch->pid.filtered_rpm += 0.2f * (actual_rpm - ch->pid.filtered_rpm);
+    ch->pid.filtered_rpm += 0.5f * (actual_rpm - ch->pid.filtered_rpm);
 
     /* Error: positive means we need more speed (use filtered RPM) */
     float error = target_rpm - ch->pid.filtered_rpm;
@@ -550,3 +550,8 @@ float Motor_GetActualRPM(uint8_t motor_id)
     return g_motor_ch[idx].actual_rpm;
 }
 /* USER CODE END 1 */
+
+void Motor_ResetPIDOutput(void){
+    g_motor_ch[0].pid.total_output = 0.0f;
+    g_motor_ch[1].pid.total_output = 0.0f;
+}
